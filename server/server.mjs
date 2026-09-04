@@ -36,7 +36,7 @@ export function normalizeRequest(body) {
   const settings = {
     questionCount: [3, 5, 7, 10].includes(Number(raw.questionCount)) ? Number(raw.questionCount) : 5,
     optionCount: [2, 3, 4, 5].includes(Number(raw.optionCount)) ? Number(raw.optionCount) : 4,
-    level: ["recall", "explain", "apply"].includes(raw.level) ? raw.level : "apply"
+    level: ["recall", "explain", "apply", "challenge"].includes(raw.level) ? raw.level : "apply"
   };
   return {
     page: {
@@ -88,7 +88,7 @@ export function buildOpenAIRequest(input, model = DEFAULT_MODEL) {
           type: "json_schema",
           name: "readback_quiz",
           strict: true,
-          schema: buildQuizSchema(input.settings.questionCount, input.settings.optionCount, mediaRefs)
+          schema: buildQuizSchema(input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level)
         }
       }
     },
@@ -143,7 +143,7 @@ async function callOpenAI(input, apiKey) {
   } catch {
     throw new Error("OpenAI returned a quiz that could not be read.");
   }
-  const shapeError = validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs);
+  const shapeError = validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level);
   if (shapeError) throw new Error(shapeError);
   quiz.model = request.model;
   return quiz;

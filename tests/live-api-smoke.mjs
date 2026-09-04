@@ -25,4 +25,5 @@ assert.equal(payload.quiz.model, "gpt-5.6-luna");
 assert.equal(payload.quiz.questions.length, 3);
 assert.ok(payload.quiz.questions.every((question) => question.options.length === 4));
 assert.ok(payload.quiz.questions.every((question) => question.prompt && question.explanation && question.evidence));
+assert.ok(payload.quiz.questions.every((question) => question.option_feedback.length === 4));
 process.stdout.write(`Live API smoke passed: ${payload.quiz.questions.length} English questions from ${payload.quiz.model}.\n`);

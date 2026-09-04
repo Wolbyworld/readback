@@ -6,7 +6,7 @@ Readback turns the page in your active browser tab into a short learning quiz. I
 
 - Makes 3, 5, 7, or 10 multiple-choice questions.
 - Uses 2 to 5 answer options.
-- Supports Recall, Explain, and Apply levels.
+- Supports Recall, Explain, Apply, and Challenge levels. Challenge questions combine source ideas in a new scenario, comparison, or counterfactual.
 - Shows all quiz controls on the start screen and saves changes automatically.
 - Reads useful page text, visible diagrams, and meaningful images.
 - Can make an image question when the visual adds learning value.

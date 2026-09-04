@@ -8,6 +8,15 @@ test("normalizes settings to safe defaults", () => {
   assert.deepEqual(input.settings, { questionCount: 5, optionCount: 4, level: "apply" });
 });
 
+test("accepts challenge as the fourth quiz level", () => {
+  const input = normalizeRequest({ page: { title: "A", text: "x".repeat(400) }, settings: { questionCount: 3, optionCount: 4, level: "challenge" } });
+  assert.equal(input.settings.level, "challenge");
+  const { request } = buildOpenAIRequest(input);
+  const questionSchema = request.text.format.schema.properties.questions.items;
+  assert.equal(questionSchema.properties.prompt.pattern, "^(Scenario|Comparison|Counterfactual):");
+  assert.equal(questionSchema.properties.evidence.pattern, "^Evidence A:.+; Evidence B:.+");
+});
+
 test("builds a Luna low-reasoning image request without storing it", () => {
   const input = normalizeRequest({
     page: { title: "Visual lesson", text: "x".repeat(400), screenshot: "data:image/jpeg;base64,QUJDRA==" },
@@ -28,6 +37,29 @@ test("extracts raw Responses API output text", () => {
 });
 
 test("rejects a question that refers to missing media", () => {
-  const quiz = { questions: [{ prompt: "A valid question?", options: ["a", "b"], answer_index: 0, image_ref: "missing" }] };
+  const quiz = { questions: [{
+    prompt: "A valid question?",
+    options: ["a", "b"],
+    answer_index: 0,
+    explanation: "Correct: The source supports a.",
+    option_feedback: ["Fits: The source supports a.", "Fails: The source rejects b. Correct: The source supports a."],
+    evidence: "A short source phrase",
+    image_ref: "missing",
+    image_alt: "A missing chart"
+  }] };
   assert.match(validateQuizShape(quiz, 1, 2, ["none"]), /missing media/);
+});
+
+test("rejects incomplete misconception feedback", () => {
+  const quiz = { questions: [{
+    prompt: "A valid question?",
+    options: ["a", "b"],
+    answer_index: 0,
+    explanation: "Correct: The source supports a.",
+    option_feedback: ["Fits: The source supports a.", "Fails: The source rejects b."],
+    evidence: "A short source phrase",
+    image_ref: "none",
+    image_alt: ""
+  }] };
+  assert.match(validateQuizShape(quiz, 1, 2, ["none"]), /misconception/);
 });
