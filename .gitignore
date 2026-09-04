@@ -1,8 +1,8 @@
 .DS_Store
 node_modules/
+.claude/worktrees/
 .env
 .env.*
 !.env.example
 artifacts/evals/*.json
 artifacts/evals/*.html
-
