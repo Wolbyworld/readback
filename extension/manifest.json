@@ -10,14 +10,15 @@
     "storage"
   ],
   "host_permissions": [
-    "http://127.0.0.1:41739/*"
+    "https://api.openai.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",
     "https://*/*"
   ],
   "background": {
-    "service_worker": "service-worker.js"
+    "service_worker": "service-worker.js",
+    "type": "module"
   },
   "action": {
     "default_title": "Quiz this page"

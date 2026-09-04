@@ -1,4 +1,3 @@
-const API_URL = "http://127.0.0.1:41739/api/quiz";
 const DEFAULT_SETTINGS = { questionCount: 5, optionCount: 4, level: "apply" };
 const LETTERS = ["A", "B", "C", "D", "E"];
 const TAB_STATE_PREFIX = "readbackTab:";
@@ -7,7 +6,8 @@ const MEDIA_STORE_NAME = "tabMedia";
 const LEVEL_HELP = {
   recall: "Check facts stated on the page.",
   explain: "Test meaning and connections.",
-  apply: "Use the ideas in a new case."
+  apply: "Use the ideas in a new case.",
+  challenge: "Combine two source ideas in a new scenario."
 };
 
 const state = {
@@ -24,11 +24,16 @@ const state = {
   abortController: null,
   requestedTabId: null,
   lastRequestId: null,
-  switchRevision: 0
+  switchRevision: 0,
+  generationRequestId: null,
+  keyStatus: { configured: false, mode: null },
+  keyReturnScreen: "start",
+  resumeAfterKeySave: false
 };
 
 const $ = (selector) => document.querySelector(selector);
 const screens = {
+  key: $("#keyScreen"),
   start: $("#startScreen"),
   access: $("#accessScreen"),
   loading: $("#loadingScreen"),
@@ -61,7 +66,7 @@ function showScreen(name) {
   state.screen = name;
   Object.entries(screens).forEach(([key, element]) => element.classList.toggle("is-active", key === name));
   const quizTitle = state.quiz?.title;
-  $("#headerMeta").textContent = ["quiz", "results"].includes(name) && quizTitle ? quizTitle : state.pageTitle;
+  $("#headerMeta").textContent = name === "key" ? "OpenAI setup" : (["quiz", "results"].includes(name) && quizTitle ? quizTitle : state.pageTitle);
   $(".tab-marker").classList.toggle("is-saved", Boolean(state.quiz));
 }
 
@@ -69,6 +74,95 @@ async function loadSettings() {
   const stored = await chrome.storage.local.get("readbackSettings");
   state.settings = { ...DEFAULT_SETTINGS, ...(stored.readbackSettings || {}) };
   updateSettingsUI();
+}
+
+async function sendWorkerMessage(message) {
+  const response = await chrome.runtime.sendMessage(message);
+  if (!response || typeof response !== "object" || typeof response.ok !== "boolean") {
+    const error = new Error("Readback received an invalid response.");
+    error.code = "INVALID_RESPONSE";
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error(typeof response.error?.message === "string" ? response.error.message : "Readback could not complete the request.");
+    error.code = typeof response.error?.code === "string" ? response.error.code : "REQUEST_FAILED";
+    throw error;
+  }
+  return response.payload;
+}
+
+async function loadKeyStatus() {
+  const status = await sendWorkerMessage({ type: "READBACK_KEY_STATUS" });
+  state.keyStatus = {
+    configured: status?.configured === true,
+    mode: ["persistent", "session"].includes(status?.mode) ? status.mode : null
+  };
+  updateKeyStatusUI();
+}
+
+function updateKeyStatusUI() {
+  const label = state.keyStatus.mode === "session" ? "OPENAI KEY · THIS SESSION" : "OPENAI KEY · ON THIS DEVICE";
+  $("#keyStatus").textContent = state.keyStatus.configured ? label : "OPENAI KEY NEEDED";
+}
+
+function openKeySetup({ resumeGeneration = false, message = "" } = {}) {
+  if (state.screen !== "key") state.keyReturnScreen = state.screen;
+  state.resumeAfterKeySave = resumeGeneration;
+  $("#apiKeyInput").value = "";
+  $("#keyTitle").textContent = state.keyStatus.configured ? "Replace your OpenAI API key." : "Add your OpenAI API key.";
+  $("#keyRemoveButton").classList.toggle("is-hidden", !state.keyStatus.configured);
+  $("#keyBackButton").classList.toggle("is-hidden", !state.keyStatus.configured && !state.quiz);
+  $("#keyNote").classList.toggle("is-error", Boolean(message));
+  $("#keyNote").textContent = message || "Readback never syncs the key or shows it again after you save it.";
+  showScreen("key");
+  $("#apiKeyInput").focus();
+}
+
+async function saveKey(event) {
+  event.preventDefault();
+  const button = $("#keySaveButton");
+  const input = $("#apiKeyInput");
+  const form = new FormData(event.currentTarget);
+  let key = input.value;
+  const mode = String(form.get("keyMode"));
+  input.value = "";
+  button.disabled = true;
+  $("#keyNote").classList.remove("is-error");
+  $("#keyNote").textContent = "Saving the key…";
+  try {
+    const status = await sendWorkerMessage({ type: "READBACK_SAVE_API_KEY", key, mode });
+    key = "";
+    state.keyStatus = { configured: status?.configured === true, mode: status?.mode || null };
+    updateKeyStatusUI();
+    const resume = state.resumeAfterKeySave;
+    state.resumeAfterKeySave = false;
+    if (resume) await generateQuiz();
+    else showScreen(state.keyReturnScreen === "key" ? "start" : state.keyReturnScreen);
+  } catch (error) {
+    key = "";
+    $("#keyNote").classList.add("is-error");
+    $("#keyNote").textContent = error?.message || "Readback could not save the key.";
+  } finally {
+    key = "";
+    button.disabled = false;
+  }
+}
+
+async function removeKey() {
+  const button = $("#keyRemoveButton");
+  button.disabled = true;
+  try {
+    const status = await sendWorkerMessage({ type: "READBACK_REMOVE_API_KEY" });
+    state.keyStatus = { configured: status?.configured === true, mode: null };
+    updateKeyStatusUI();
+    state.resumeAfterKeySave = false;
+    openKeySetup({ message: "The saved key was removed. Add a key to make another quiz." });
+  } catch (error) {
+    $("#keyNote").classList.add("is-error");
+    $("#keyNote").textContent = error?.message || "Readback could not remove the key.";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function updateSettingsUI() {
@@ -189,9 +283,7 @@ async function activateTab(tabId, tab = {}) {
   }
 
   if (state.abortController) {
-    state.abortController.abort();
-    state.abortController = null;
-    state.screen = "start";
+    cancelGeneration(false);
   }
   await saveCurrentTabState();
 
@@ -225,7 +317,7 @@ function renderCurrentState() {
   $("#pageStatus").textContent = state.quiz ? "SAVED" : "READY";
   if (state.screen === "quiz" && state.quiz) renderQuestion();
   else if (state.screen === "results" && state.quiz) buildResults();
-  else if (!["start", "access", "error"].includes(state.screen)) state.screen = "start";
+  else if (!["start", "access", "error", "key"].includes(state.screen)) state.screen = "start";
   showScreen(state.screen);
   if (state.screen === "start") updateSetupActions();
 }
@@ -268,6 +360,10 @@ function resumeQuiz() {
 }
 
 async function generateQuiz() {
+  if (!state.keyStatus.configured) {
+    openKeySetup({ resumeGeneration: true });
+    return;
+  }
   const generationTabId = state.requestedTabId ?? state.tabId;
   if (!Number.isInteger(generationTabId)) {
     showError(new Error("No active page was found."));
@@ -278,35 +374,33 @@ async function generateQuiz() {
   state.abortController?.abort();
   const controller = new AbortController();
   state.abortController = controller;
+  const requestId = crypto.randomUUID();
+  state.generationRequestId = requestId;
   showScreen("loading");
   cycleLoadingMessage();
 
   try {
-    const extraction = await chrome.runtime.sendMessage({ type: "READBACK_EXTRACT_PAGE", tabId: generationTabId });
-    if (!extraction?.ok) {
-      const extractionError = new Error(extraction?.error?.message || extraction?.error || "The page could not be read.");
-      extractionError.code = extraction?.error?.code;
-      throw extractionError;
-    }
-    if ((extraction.payload?.text || "").length < 250) {
+    const page = await sendWorkerMessage({ type: "READBACK_EXTRACT_PAGE", tabId: generationTabId });
+    if (controller.signal.aborted) return;
+    if ((page?.text || "").length < 250) {
       throw new Error("This page does not have enough readable text for a useful quiz.");
     }
 
-    state.pageTitle = extraction.payload.title || state.pageTitle;
-    state.pageUrl = extraction.payload.url || state.pageUrl;
-    state.media = buildMediaMap(extraction.payload);
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page: extraction.payload, settings: state.settings }),
-      signal: controller.signal
+    state.pageTitle = page.title || state.pageTitle;
+    state.pageUrl = page.url || state.pageUrl;
+    const media = buildMediaMap(page);
+    const generated = await sendWorkerMessage({
+      type: "READBACK_GENERATE_QUIZ",
+      requestId,
+      page,
+      settings: state.settings
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `The local service returned ${response.status}.`);
+    if (controller.signal.aborted) return;
+    if (!generated?.quiz || !Array.isArray(generated.quiz.questions)) throw new Error("Readback received an invalid quiz.");
     if (state.tabId !== generationTabId) return;
 
-    state.quiz = payload.quiz;
+    state.media = media;
+    state.quiz = generated.quiz;
     state.index = 0;
     state.answers = Array(state.quiz.questions.length).fill(null);
     state.animating = false;
@@ -315,14 +409,24 @@ async function generateQuiz() {
     showScreen("quiz");
     await saveCurrentTabState();
   } catch (error) {
-    if (error.name === "AbortError") {
+    if (controller.signal.aborted || error.code === "REQUEST_CANCELLED") {
       if (state.tabId === generationTabId) showScreen("start");
       return;
     }
     if (state.tabId === generationTabId) showError(error);
   } finally {
     if (state.abortController === controller) state.abortController = null;
+    if (state.generationRequestId === requestId) state.generationRequestId = null;
   }
+}
+
+function cancelGeneration(showStart = true) {
+  const requestId = state.generationRequestId;
+  state.abortController?.abort();
+  state.abortController = null;
+  state.generationRequestId = null;
+  if (requestId) chrome.runtime.sendMessage({ type: "READBACK_CANCEL_GENERATION", requestId }).catch(() => {});
+  if (showStart) showScreen("start");
 }
 
 function buildMediaMap(page) {
@@ -500,12 +604,15 @@ function showError(error) {
     showScreen("access");
     return;
   }
+  if (["MISSING_API_KEY", "INVALID_API_KEY"].includes(error?.code)) {
+    if (error.code === "MISSING_API_KEY") state.keyStatus = { configured: false, mode: null };
+    updateKeyStatusUI();
+    openKeySetup({ resumeGeneration: true, message: error.message });
+    return;
+  }
   const message = error?.message || "Unknown error.";
-  const serviceDown = /Failed to fetch|NetworkError|Load failed/i.test(message);
-  $("#errorTitle").textContent = serviceDown ? "Start the Readback service." : "This quiz needs another try.";
-  $("#errorMessage").textContent = serviceDown
-    ? "The private local service is not running. Open start-readback.command, then try again."
-    : message;
+  $("#errorTitle").textContent = error?.code === "RATE_LIMITED" ? "OpenAI needs a short pause." : "This quiz needs another try.";
+  $("#errorMessage").textContent = message;
   showScreen("error");
 }
 
@@ -546,19 +653,33 @@ function scoreMessage(ratio) {
 }
 
 async function consumeGenerateRequest(request) {
-  if (!request || request.id === state.lastRequestId || Date.now() - request.createdAt > 15000) return;
+  const valid = request && typeof request === "object" &&
+    typeof request.id === "string" && request.id.length <= 80 &&
+    Number.isInteger(request.tabId) && request.tabId > 0 &&
+    Number.isFinite(request.createdAt);
+  if (!valid || request.id === state.lastRequestId || Date.now() - request.createdAt > 15000) return;
   state.lastRequestId = request.id;
-  await activateTab(request.tabId, { title: request.title, url: request.url });
+  await activateTab(request.tabId, {
+    title: typeof request.title === "string" ? request.title.slice(0, 300) : "",
+    url: typeof request.url === "string" ? request.url.slice(0, 2048) : ""
+  });
   state.requestedTabId = request.tabId;
   await chrome.storage.session.remove("readbackGenerateRequest");
   generateQuiz();
 }
 
 $("#quickSettings").addEventListener("change", (event) => saveSettingsFromForm(event.currentTarget));
+$("#keyForm").addEventListener("submit", saveKey);
+$("#keySetupButton").addEventListener("click", () => openKeySetup());
+$("#keyRemoveButton").addEventListener("click", removeKey);
+$("#keyBackButton").addEventListener("click", () => {
+  state.resumeAfterKeySave = false;
+  showScreen(state.keyReturnScreen === "key" ? "start" : state.keyReturnScreen);
+});
 $("#generateButton").addEventListener("click", generateQuiz);
 $("#accessButton").addEventListener("click", requestWebsiteAccess);
 $("#accessHomeButton").addEventListener("click", () => showScreen("start"));
-$("#cancelButton").addEventListener("click", () => state.abortController?.abort());
+$("#cancelButton").addEventListener("click", () => cancelGeneration());
 $("#answers").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-answer]");
   if (button) chooseAnswer(Number(button.dataset.answer), event.detail === 0);
@@ -584,17 +705,36 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-chrome.tabs.onActivated?.addListener(({ tabId }) => activateTab(tabId));
+chrome.tabs.onActivated?.addListener(({ tabId }) => {
+  if (!Number.isInteger(tabId)) return;
+  activateTab(tabId).then(() => {
+    if (!state.keyStatus.configured && !state.quiz) openKeySetup();
+  });
+});
 chrome.runtime.onMessage?.addListener((message) => {
-  if (message?.type === "READBACK_TAB_RESET") resetTab(message.tabId, message.tab);
+  if (message?.type === "READBACK_TAB_RESET" && Number.isInteger(message.tabId) && message.tab && typeof message.tab === "object") {
+    resetTab(message.tabId, {
+      title: typeof message.tab.title === "string" ? message.tab.title.slice(0, 300) : "",
+      url: typeof message.tab.url === "string" ? message.tab.url.slice(0, 2048) : ""
+    }).then(() => {
+      if (!state.keyStatus.configured) openKeySetup();
+    });
+  }
 });
 
 async function initialize() {
   await loadSettings();
+  try {
+    await loadKeyStatus();
+  } catch (error) {
+    showError(error);
+    return;
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await activateTab(tab?.id, tab || {});
   const stored = await chrome.storage.session.get("readbackGenerateRequest");
-  await consumeGenerateRequest(stored.readbackGenerateRequest);
+  if (stored.readbackGenerateRequest) await consumeGenerateRequest(stored.readbackGenerateRequest);
+  else if (!state.keyStatus.configured && !state.quiz) openKeySetup();
 }
 
 initialize();

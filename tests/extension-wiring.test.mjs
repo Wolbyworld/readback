@@ -41,13 +41,15 @@ test("quiz state is stored and restored by browser tab", async () => {
   assert.match(worker, /READBACK_TAB_RESET/);
 });
 
-test("the start screen exposes the three quiz controls", async () => {
+test("the start screen exposes all quiz controls including Challenge", async () => {
   const html = await readFile(panelHtmlUrl, "utf8");
 
   assert.match(html, /id="quickSettings"/);
   assert.match(html, /name="questionCount"/);
   assert.match(html, /name="optionCount"/);
   assert.match(html, /name="level"/);
+  assert.match(html, /name="level" value="challenge"/);
+  assert.match(await readFile(panelUrl, "utf8"), /challenge: "Combine two source ideas in a new scenario\."/);
   assert.doesNotMatch(html, /id="settingsDialog"/);
 });
 
@@ -78,9 +80,9 @@ test("a replacement keeps the saved quiz until a successful response arrives", a
   const generation = panel.slice(panel.indexOf("async function generateQuiz"), panel.indexOf("function buildMediaMap"));
 
   assert.match(generation, /showScreen\("loading"\);/);
-  assert.match(generation, /if \(!response\.ok\) throw new Error/);
-  assert.match(generation, /state\.quiz = payload\.quiz;/);
-  assert.ok(generation.indexOf("state.quiz = payload.quiz") > generation.indexOf("if (!response.ok)"));
+  assert.match(generation, /type: "READBACK_GENERATE_QUIZ"/);
+  assert.match(generation, /state\.quiz = generated\.quiz;/);
+  assert.ok(generation.indexOf("state.quiz = generated.quiz") > generation.indexOf("if (!generated?.quiz"));
   assert.doesNotMatch(generation, /state\.quiz\s*=\s*null/);
 });
 
@@ -106,4 +108,51 @@ test("direct panel use can request website access with clear UI", async () => {
   assert.match(panel, /HOST_ACCESS_REQUIRED/);
   assert.match(html, /id="accessScreen"/);
   assert.match(html, /Allow website access/);
+});
+
+test("normal use calls OpenAI from the service worker without localhost", async () => {
+  const [manifestText, worker, panel] = await Promise.all([
+    readFile(manifestUrl, "utf8"),
+    readFile(workerUrl, "utf8"),
+    readFile(panelUrl, "utf8")
+  ]);
+  const manifest = JSON.parse(manifestText);
+
+  assert.deepEqual(manifest.host_permissions, ["https://api.openai.com/*"]);
+  assert.equal(manifest.background.type, "module");
+  assert.match(worker, /createQuizWithOpenAI/);
+  assert.match(worker, /READBACK_GENERATE_QUIZ/);
+  assert.match(panel, /READBACK_GENERATE_QUIZ/);
+  assert.doesNotMatch(`${manifestText}\n${panel}`, /127\.0\.0\.1|localhost/);
+  assert.doesNotMatch(panel, /\bfetch\s*\(/);
+});
+
+test("key setup supports persistent, session-only, replace, and remove flows", async () => {
+  const [worker, panel, html] = await Promise.all([
+    readFile(workerUrl, "utf8"),
+    readFile(panelUrl, "utf8"),
+    readFile(panelHtmlUrl, "utf8")
+  ]);
+
+  assert.match(html, /id="keyScreen"/);
+  assert.match(html, /type="password"/);
+  assert.match(html, /name="keyMode" value="persistent"/);
+  assert.match(html, /name="keyMode" value="session"/);
+  assert.match(html, /Replace or remove/);
+  assert.match(html, /Remove saved key/);
+  assert.match(panel, /input\.value = "";/);
+  assert.match(worker, /READBACK_KEY_STATUS/);
+  assert.match(worker, /READBACK_SAVE_API_KEY/);
+  assert.match(worker, /READBACK_REMOVE_API_KEY/);
+  assert.doesNotMatch(`${worker}\n${panel}`, /storage\.sync/);
+});
+
+test("extension storage is limited to trusted extension contexts", async () => {
+  const [worker, keyStorage] = await Promise.all([
+    readFile(workerUrl, "utf8"),
+    readFile(new URL("../extension/key-storage.js", import.meta.url), "utf8")
+  ]);
+
+  assert.match(worker, /configureStorageAccess\(chrome\.storage\)/);
+  assert.equal((keyStorage.match(/accessLevel: "TRUSTED_CONTEXTS"/g) || []).length, 2);
 });

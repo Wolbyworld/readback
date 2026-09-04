@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildOpenAIRequest, extractOutputText, normalizeRequest } from "../server/server.mjs";
-import { validateQuizShape } from "../server/quiz-schema.mjs";
+import { buildOpenAIRequest, extractOutputText, normalizeRequest } from "../extension/openai-request.js";
+import { validateQuizShape } from "../extension/quiz-schema.js";
 
 test("normalizes settings to safe defaults", () => {
   const input = normalizeRequest({ page: { title: "A", text: "x".repeat(400) }, settings: { questionCount: 900, optionCount: 1, level: "expert" } });

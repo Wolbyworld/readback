@@ -6,50 +6,66 @@ Readback turns the page in your active browser tab into a short learning quiz. I
 
 - Makes 3, 5, 7, or 10 multiple-choice questions.
 - Uses 2 to 5 answer options.
-- Supports Recall, Explain, Apply, and Challenge levels. Challenge questions combine source ideas in a new scenario, comparison, or counterfactual.
-- Shows all quiz controls on the start screen and saves changes automatically.
-- Reads useful page text, visible diagrams, charts, and meaningful images.
-- Can make an image question when the visual adds learning value.
+- Supports Recall, Explain, Apply, and Challenge levels.
+- Uses page text, useful diagrams, charts, and meaningful images.
 - Always writes the quiz in English.
-- Uses `gpt-5.6-luna` with low reasoning.
-- Keeps the API key in a local service. The key is never inside the extension.
-- Does not keep quiz history, page content, or analytics.
-- Keeps each open tab's quiz and answers separate for the current browser session.
+- Uses `gpt-5.6-luna` with low reasoning and strict quiz output.
+- Gives feedback for every answer option.
+- Keeps each tab's quiz and answers separate for the current browser session.
 
-## Start it
+Challenge questions combine at least two source ideas in a new scenario, comparison, or counterfactual. They do not need outside knowledge.
 
-1. Double-click `start-readback.command`.
-2. Keep the small Terminal window open while you use Readback.
+## Install it
 
-Your existing `.env.local` file at the project root supplies the API key. Do not move that key into the extension folder.
-
-## Install it in Vivaldi
+In Vivaldi:
 
 1. Open `vivaldi://extensions`.
 2. Turn on **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the `extension` folder inside this Readback folder.
-5. Pin Readback. Click its toolbar button on any normal webpage. The quiz starts at once.
-
-You can also use Vivaldi's permanent Readback panel. The first time, select **Allow website access** and approve the browser prompt. Vivaldi needs this permission because opening a permanent panel does not grant access to the current page. Readback still reads and sends a page only after you start a quiz.
+4. Select the `extension` folder in this Readback folder.
+5. Pin Readback. Click its toolbar button on a normal webpage.
 
 Chrome uses the same steps at `chrome://extensions`.
 
+Vivaldi can also keep Readback in a permanent panel. The first time, select **Allow website access** and approve the browser prompt. Readback reads and sends page data only after you start a quiz.
+
+## Add your OpenAI key
+
+Readback asks for an OpenAI API key the first time that it opens. Choose one storage mode:
+
+- **On this device** keeps the key after a browser restart.
+- **This session only** removes the key when the browser closes.
+
+You can replace or remove the key from the quiz setup screen. Readback clears the key field after save. It never shows the saved key, syncs it, logs it, or puts it in an error message.
+
+Normal use needs only the extension. It does not need a Terminal window, local service, or companion app.
+
 ## Private by design
 
-Readback sends data only after you click **Make my quiz**. It sends the readable page text and up to three useful page visuals to OpenAI. If no useful visual can be extracted, it sends the visible page capture instead. The local service binds only to `127.0.0.1`. It does not log page content. The OpenAI request uses `store: false`.
+Readback sends data only after you click **Make my quiz**. It sends the readable page text and up to three useful page visuals directly to the OpenAI Responses API. If no useful visual can be extracted, it can send the visible page capture instead.
+
+The extension service worker owns the key and the OpenAI request. Extension storage is limited to trusted extension contexts. The request uses `store: false`. Readback does not keep quiz history, page content, or analytics.
 
 Browser system pages, extension stores, and some protected pages cannot be read. On those pages, open a normal website and try again.
 
-## Stop it
+## Optional development service
 
-Close the Readback Terminal window or press Control-C in it.
+The local service remains available only for live model evaluation and development. It is not part of the product runtime.
 
-## Verified
+1. Put a development key in `.env.local` at the project root. Do not put it in the extension folder.
+2. Run `npm start`, or double-click `start-readback.command`.
+3. Run `node tests/model-quality-eval.mjs` in another Terminal window.
 
-- Real GPT-5.6 Luna requests and strict quiz output.
-- English quiz output from a Spanish source.
-- Resistance to instructions hidden inside webpage text.
-- A chart-based visual question.
-- Settings, Back/Next motion, scoring, retry, and answer review.
-- Extension loading and side-panel support in Chrome for Testing and Vivaldi.
+## Local checks
+
+- `npm test`
+- `node --check extension/service-worker.js`
+- `node --check extension/sidepanel.js`
+
+## Verified in automated tests
+
+- Persistent, session-only, replacement, and removal key flows.
+- Direct Luna Responses API request with low reasoning, `store: false`, strict schema, and all visual references.
+- Safe missing-key, invalid-key, rate-limit, network, and timeout errors.
+- English output, hostile page instructions, Challenge rules, and visual-question rules.
+- Settings, Back/Next motion, answer feedback, scoring, retry, replacement, and resume wiring.

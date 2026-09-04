@@ -24,8 +24,8 @@ const shim = `
 const demoScreenshot = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420"><rect width="800" height="420" fill="white"/><text x="40" y="60" font-family="Georgia" font-size="34">Sleep cycle</text><rect x="70" y="160" width="170" height="120" fill="#f7db23"/><rect x="300" y="100" width="170" height="180" fill="#ed3b2f"/><rect x="530" y="200" width="170" height="80" fill="#1647ff"/><text x="110" y="320" font-family="monospace" font-size="20">awake</text><text x="350" y="320" font-family="monospace" font-size="20">REM</text><text x="545" y="320" font-family="monospace" font-size="20">deep sleep</text></svg>');
 globalThis.chrome = {
   storage: {
-    local: { get: async () => ({}), set: async () => {} },
-    session: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+    local: { get: async () => ({}), set: async () => {}, remove: async () => {}, setAccessLevel: async () => {} },
+    session: { get: async () => ({}), set: async () => {}, remove: async () => {}, setAccessLevel: async () => {} },
     onChanged: { addListener: () => {} }
   },
   tabs: {
@@ -34,12 +34,16 @@ globalThis.chrome = {
   },
   permissions: { request: async () => true },
   runtime: {
-    sendMessage: async () => ({ ok: true, payload: { title: "Why sleep makes memories stick", url: "https://example.com/sleep", text: "Sleep helps the brain stabilize memories. During deep sleep, the hippocampus replays recent patterns and repeated activity helps the cortex build stable memories. REM sleep helps connect ideas and process emotional memories. Attention while awake helps encode the original memory. ".repeat(3), images: [], diagrams: [], screenshot: demoScreenshot } })
+    sendMessage: async (message) => {
+      if (message.type === "READBACK_KEY_STATUS") return { ok: true, payload: { configured: true, mode: "persistent" } };
+      if (message.type === "READBACK_GENERATE_QUIZ") {
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        return { ok: true, payload: { quiz: ${JSON.stringify(quiz)} } };
+      }
+      if (message.type === "READBACK_CANCEL_GENERATION") return { ok: true, payload: { cancelled: true } };
+      return { ok: true, payload: { title: "Why sleep makes memories stick", url: "https://example.com/sleep", text: "Sleep helps the brain stabilize memories. During deep sleep, the hippocampus replays recent patterns and repeated activity helps the cortex build stable memories. REM sleep helps connect ideas and process emotional memories. Attention while awake helps encode the original memory. ".repeat(3), images: [], diagrams: [], screenshot: demoScreenshot } };
+    }
   }
-};
-globalThis.fetch = async () => {
-  await new Promise((resolve) => setTimeout(resolve, 180));
-  return new Response(JSON.stringify({ quiz: ${JSON.stringify(quiz)} }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
 addEventListener("DOMContentLoaded", () => {
   const wanted = new URLSearchParams(location.search).get("state") || "start";

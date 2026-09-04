@@ -19,10 +19,30 @@
     </header>
 
     <main>
+      <section class="screen key-screen" id="keyScreen" aria-live="polite">
+        <span class="key-code">OPENAI SETUP</span>
+        <h1 id="keyTitle">Add your OpenAI API key.</h1>
+        <p>Your key stays in this browser. Readback sends it only to OpenAI when you make a quiz.</p>
+        <form class="key-form" id="keyForm">
+          <label for="apiKeyInput">API key</label>
+          <input id="apiKeyInput" name="apiKey" type="password" autocomplete="new-password" spellcheck="false" required aria-describedby="keyNote">
+          <fieldset>
+            <legend>Keep it</legend>
+            <label><input type="radio" name="keyMode" value="persistent" checked><span><b>On this device</b><small>Available after you restart the browser.</small></span></label>
+            <label><input type="radio" name="keyMode" value="session"><span><b>This session only</b><small>Removed when the browser closes.</small></span></label>
+          </fieldset>
+          <p class="key-note" id="keyNote">Readback never syncs the key or shows it again after you save it.</p>
+          <button class="primary-button" id="keySaveButton" type="submit"><span>Save key</span><span aria-hidden="true">→</span></button>
+        </form>
+        <button class="secondary-button is-hidden" id="keyRemoveButton" type="button">Remove saved key</button>
+        <button class="text-button is-hidden" id="keyBackButton" type="button">Back to Readback</button>
+      </section>
+
       <section class="screen start-screen is-active" id="startScreen">
         <div class="start-index"><span>PAGE</span><b id="pageStatus">READY</b></div>
         <h1>Turn this page into a test.</h1>
         <p class="page-title" id="pageTitle">Current page</p>
+        <div class="key-status"><span id="keyStatus">OPENAI KEY READY</span><button id="keySetupButton" type="button">Replace or remove</button></div>
 
         <form class="quick-settings" id="quickSettings" aria-label="Quiz setup">
           <div class="setup-heading"><span>QUIZ SETUP</span><small>Changes save automatically</small></div>
@@ -46,10 +66,11 @@
           </fieldset>
           <fieldset class="depth-field">
             <legend>Depth</legend>
-            <div class="quick-options three-up">
+            <div class="quick-options four-up">
               <label><input type="radio" name="level" value="recall"><span>Recall</span></label>
               <label><input type="radio" name="level" value="explain"><span>Explain</span></label>
               <label><input type="radio" name="level" value="apply"><span>Apply</span></label>
+              <label><input type="radio" name="level" value="challenge"><span>Challenge</span></label>
             </div>
             <p id="levelHelp">Use the ideas in a new case.</p>
           </fieldset>

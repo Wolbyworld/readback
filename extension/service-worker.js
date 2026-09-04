@@ -1,9 +1,15 @@
+import { apiKeyStatus, configureStorageAccess, KeyStorageError, readApiKey, removeApiKey, saveApiKey } from "./key-storage.js";
+import { createQuizWithOpenAI, ReadbackApiError, validateGenerationInput } from "./openai-request.js";
+
 const SCREENSHOT_QUALITY = 68;
 const MAX_TEXT_LENGTH = 28000;
 const MAX_VISUALS = 3;
 const MAX_VISUAL_EDGE = 1000;
 const MAX_VISUAL_DATA_URL_LENGTH = 1_500_000;
 const TAB_STATE_PREFIX = "readbackTab:";
+const generationControllers = new Map();
+const storageReady = configureStorageAccess(chrome.storage);
+storageReady.catch(() => {});
 
 function configureSidePanel() {
   if (!chrome.sidePanel?.setPanelBehavior) return;
@@ -12,17 +18,90 @@ function configureSidePanel() {
 }
 
 configureSidePanel();
-chrome.runtime.onInstalled.addListener(configureSidePanel);
-chrome.runtime.onStartup.addListener(configureSidePanel);
+chrome.runtime.onInstalled.addListener(() => {
+  configureSidePanel();
+  configureStorageAccess(chrome.storage).catch(() => {});
+});
+chrome.runtime.onStartup.addListener(() => {
+  configureSidePanel();
+  configureStorageAccess(chrome.storage).catch(() => {});
+});
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "READBACK_EXTRACT_PAGE") return false;
-
-  extractActivePage(message.tabId)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  let task;
+  try {
+    task = routeMessage(message, sender);
+  } catch (error) {
+    sendResponse({ ok: false, error: friendlyWorkerError(error) });
+    return false;
+  }
+  if (!task) return false;
+  task
     .then((payload) => sendResponse({ ok: true, payload }))
-    .catch((error) => sendResponse({ ok: false, error: friendlyExtractionError(error) }));
+    .catch((error) => sendResponse({ ok: false, error: friendlyWorkerError(error) }));
   return true;
 });
+
+function routeMessage(message, sender) {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+  if (sender?.id && sender.id !== chrome.runtime.id) return null;
+
+  switch (message.type) {
+    case "READBACK_EXTRACT_PAGE":
+      assertOnlyKeys(message, ["type", "tabId"]);
+      if (!Number.isInteger(message.tabId) || message.tabId < 1) throw new ReadbackApiError("INVALID_REQUEST", "The page request was not valid.", 400);
+      return extractActivePage(message.tabId);
+    case "READBACK_KEY_STATUS":
+      assertOnlyKeys(message, ["type"]);
+      return storageReady.then(() => apiKeyStatus(chrome.storage));
+    case "READBACK_SAVE_API_KEY":
+      assertOnlyKeys(message, ["type", "key", "mode"]);
+      return storageReady.then(() => saveApiKey(chrome.storage, message.key, message.mode));
+    case "READBACK_REMOVE_API_KEY":
+      assertOnlyKeys(message, ["type"]);
+      return storageReady.then(() => removeApiKey(chrome.storage));
+    case "READBACK_GENERATE_QUIZ":
+      assertOnlyKeys(message, ["type", "requestId", "page", "settings"]);
+      assertRequestId(message.requestId);
+      return generateQuiz(message);
+    case "READBACK_CANCEL_GENERATION":
+      assertOnlyKeys(message, ["type", "requestId"]);
+      assertRequestId(message.requestId);
+      generationControllers.get(message.requestId)?.abort();
+      return Promise.resolve({ cancelled: true });
+    default:
+      return null;
+  }
+}
+
+function assertOnlyKeys(message, allowed) {
+  if (Object.keys(message).some((key) => !allowed.includes(key))) {
+    throw new ReadbackApiError("INVALID_REQUEST", "The Readback request was not valid.", 400);
+  }
+}
+
+function assertRequestId(requestId) {
+  if (typeof requestId !== "string" || requestId.length < 8 || requestId.length > 80 || !/^[A-Za-z0-9-]+$/.test(requestId)) {
+    throw new ReadbackApiError("INVALID_REQUEST", "The quiz request identifier was not valid.", 400);
+  }
+}
+
+async function generateQuiz(message) {
+  const input = validateGenerationInput({ page: message.page, settings: message.settings });
+  await storageReady;
+  const stored = await readApiKey(chrome.storage);
+  if (!stored.key) throw new ReadbackApiError("MISSING_API_KEY", "Add an OpenAI API key before you make a quiz.", 401);
+
+  generationControllers.get(message.requestId)?.abort();
+  const controller = new AbortController();
+  generationControllers.set(message.requestId, controller);
+  try {
+    const quiz = await createQuizWithOpenAI(input, stored.key, { signal: controller.signal });
+    return { quiz };
+  } finally {
+    if (generationControllers.get(message.requestId) === controller) generationControllers.delete(message.requestId);
+  }
+}
 
 chrome.action.onClicked.addListener((tab) => {
   const request = {
@@ -322,5 +401,12 @@ function friendlyExtractionError(error) {
       message: "This page is protected by the browser. Open a normal website and try again."
     };
   }
-  return { code: "EXTRACTION_FAILED", message };
+  return { code: "EXTRACTION_FAILED", message: "Readback could not read this page. Try another page or reload it." };
+}
+
+function friendlyWorkerError(error) {
+  if (error instanceof ReadbackApiError || error instanceof KeyStorageError) {
+    return { code: error.code, message: error.message };
+  }
+  return friendlyExtractionError(error);
 }

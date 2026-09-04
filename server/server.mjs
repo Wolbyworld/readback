@@ -2,8 +2,9 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildQuizSchema, validateQuizShape } from "./quiz-schema.mjs";
-import { buildPrompt } from "./prompt.mjs";
+import { buildOpenAIRequest, createQuizWithOpenAI, extractOutputText, normalizeRequest } from "../extension/openai-request.js";
+
+export { buildOpenAIRequest, extractOutputText, normalizeRequest };
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.READBACK_PORT || 41739);
@@ -30,123 +31,8 @@ export async function loadApiKey(envPath = resolve(ROOT, ".env.local")) {
   return "";
 }
 
-export function normalizeRequest(body) {
-  const page = body?.page || {};
-  const raw = body?.settings || {};
-  const settings = {
-    questionCount: [3, 5, 7, 10].includes(Number(raw.questionCount)) ? Number(raw.questionCount) : 5,
-    optionCount: [2, 3, 4, 5].includes(Number(raw.optionCount)) ? Number(raw.optionCount) : 4,
-    level: ["recall", "explain", "apply", "challenge"].includes(raw.level) ? raw.level : "apply"
-  };
-  return {
-    page: {
-      title: String(page.title || "Untitled page").slice(0, 300),
-      text: String(page.text || "").slice(0, 28000),
-      diagrams: Array.isArray(page.diagrams) ? page.diagrams.slice(0, 3) : [],
-      images: Array.isArray(page.images) ? page.images.slice(0, 3).filter(validImage) : [],
-      screenshot: validDataImage(page.screenshot) ? page.screenshot : null
-    },
-    settings
-  };
-}
-
-function validImage(image) {
-  return image && typeof image.ref === "string" && validDataImage(image.dataUrl);
-}
-
-function validDataImage(value) {
-  return typeof value === "string" && /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(value) && value.length <= 4_500_000;
-}
-
-export function buildOpenAIRequest(input, model = DEFAULT_MODEL) {
-  const media = [];
-  const mediaRefs = ["none"];
-  if (input.page.screenshot) {
-    mediaRefs.push("page_view");
-    media.push({ type: "input_image", image_url: input.page.screenshot, detail: "low" });
-  }
-  for (const image of input.page.images) {
-    mediaRefs.push(image.ref);
-    media.push({ type: "input_image", image_url: image.dataUrl, detail: "low" });
-  }
-
-  return {
-    request: {
-      model,
-      store: false,
-      reasoning: { effort: "low" },
-      max_output_tokens: 7000,
-      input: [{
-        role: "user",
-        content: [
-          { type: "input_text", text: buildPrompt({ ...input, mediaRefs }) },
-          ...media
-        ]
-      }],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "readback_quiz",
-          strict: true,
-          schema: buildQuizSchema(input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level)
-        }
-      }
-    },
-    mediaRefs
-  };
-}
-
-export function extractOutputText(payload) {
-  if (typeof payload?.output_text === "string") return payload.output_text;
-  for (const item of payload?.output || []) {
-    if (item?.type !== "message") continue;
-    for (const content of item.content || []) {
-      if (content?.type === "output_text" && typeof content.text === "string") return content.text;
-    }
-  }
-  return "";
-}
-
 async function callOpenAI(input, apiKey) {
-  const { request, mediaRefs } = buildOpenAIRequest(input);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
-  let response;
-  try {
-    response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(request),
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const code = payload?.error?.code || payload?.error?.type || `http_${response.status}`;
-    const message = payload?.error?.message || "OpenAI could not create the quiz.";
-    const error = new Error(`${message} (${code})`);
-    error.status = response.status >= 500 ? 502 : response.status;
-    throw error;
-  }
-
-  const outputText = extractOutputText(payload);
-  if (!outputText) throw new Error("OpenAI returned no quiz content.");
-  let quiz;
-  try {
-    quiz = JSON.parse(outputText);
-  } catch {
-    throw new Error("OpenAI returned a quiz that could not be read.");
-  }
-  const shapeError = validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level);
-  if (shapeError) throw new Error(shapeError);
-  quiz.model = request.model;
-  return quiz;
+  return createQuizWithOpenAI(input, apiKey, { model: DEFAULT_MODEL, timeoutMs: OPENAI_TIMEOUT_MS });
 }
 
 function corsHeaders(origin) {
