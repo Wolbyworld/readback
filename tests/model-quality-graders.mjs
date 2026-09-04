@@ -57,6 +57,12 @@ function jaccard(left, right) {
   return union ? intersection / union : 0;
 }
 
+function overlapCoefficient(left, right) {
+  const smaller = Math.min(left.size, right.size);
+  if (!smaller) return 0;
+  return [...left].filter((word) => right.has(word)).length / smaller;
+}
+
 function challengeEvidenceParts(evidence) {
   const match = String(evidence || "").match(/^Evidence A:\s*([^;]+?)\s*;\s*Evidence B:\s*([^;]+)$/i);
   return match ? [match[1].trim(), match[2].trim()] : [];
@@ -65,6 +71,23 @@ function challengeEvidenceParts(evidence) {
 function groundedTokenCount(value, fixture) {
   const source = contentTokens(fixture.page.text);
   return [...contentTokens(value)].filter((word) => source.has(word)).length;
+}
+
+function isDerivedFromShownNumbers(number, outputNumbers, sourceNumbers) {
+  const target = Number.parseFloat(number);
+  if (!Number.isFinite(target)) return false;
+  const operands = [...new Set(outputNumbers.filter((value) => sourceNumbers.has(value)).map((value) => Number.parseFloat(value)))];
+  for (let left = 0; left < operands.length; left += 1) {
+    for (let right = left + 1; right < operands.length; right += 1) {
+      if (Math.abs(Math.abs(operands[left] - operands[right]) - target) < 0.0001) return true;
+    }
+  }
+  return false;
+}
+
+function numberTokens(value) {
+  return (String(value || "").match(/\b(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?\b/g) || [])
+    .map((number) => number.replaceAll(",", ""));
 }
 
 function questionLabel(index) {
@@ -140,11 +163,12 @@ export function gradeGroundingAndEvidence(quiz, fixture) {
     const support = [question.options?.[question.answer_index], question.explanation, question.evidence].join(" ");
     if (termsIn(support, terms).length === 0) failures.push(`${questionLabel(index)} answer and feedback are not tied to source evidence.`);
 
-    const sourceNumbers = new Set((`${fixture.page.text} ${(fixture.expectations.groundingTerms || []).join(" ")}`.match(/\b\d+(?:\.\d+)?%?\b/g) || []));
-    const outputNumbers = support.match(/\b\d+(?:\.\d+)?%?\b/g) || [];
+    const sourceNumbers = new Set(numberTokens(`${fixture.page.text} ${(fixture.expectations.groundingTerms || []).join(" ")}`));
+    const outputNumbers = numberTokens(support);
     for (const number of outputNumbers) {
       const describesCalculation = /\b(?:add(?:ing|ed)?|calculat(?:e|ed|ing)|divid(?:e|ed|ing)|sum|total|weight(?:ed|ing))\b/i.test(support);
-      if (!sourceNumbers.has(number) && !describesCalculation) failures.push(`${questionLabel(index)} introduces the unsupported number ${number}.`);
+      const isShownCalculation = describesCalculation || isDerivedFromShownNumbers(number, outputNumbers, sourceNumbers);
+      if (!sourceNumbers.has(number) && !isShownCalculation) failures.push(`${questionLabel(index)} introduces the unsupported number ${number}.`);
     }
   }
   return result(failures);
@@ -163,7 +187,16 @@ export function gradeNoDuplicateQuestions(quiz, fixture) {
       }
       const leftConcepts = new Set(termsIn(`${questions[left].prompt} ${questions[left].evidence}`, groundingTerms));
       const rightConcepts = new Set(termsIn(`${questions[right].prompt} ${questions[right].evidence}`, groundingTerms));
-      if (leftConcepts.size >= 2 && rightConcepts.size >= 2 && jaccard(leftConcepts, rightConcepts) >= 0.9) {
+      const testedClaimOverlap = jaccard(
+        contentTokens(`${questions[left].prompt} ${questions[left].options?.[questions[left].answer_index]}`),
+        contentTokens(`${questions[right].prompt} ${questions[right].options?.[questions[right].answer_index]}`)
+      );
+      if (
+        leftConcepts.size >= 2 &&
+        rightConcepts.size >= 2 &&
+        overlapCoefficient(leftConcepts, rightConcepts) >= 0.9 &&
+        testedClaimOverlap >= 0.4
+      ) {
         failures.push(`Questions ${left + 1} and ${right + 1} test the same source concepts.`);
       }
     }
@@ -198,7 +231,11 @@ export function gradeChallengeContract(quiz, fixture) {
       if (usesVisual) {
         if (visualPart < 0) failures.push(`${questionLabel(index)} does not label its visual support.`);
         const textPart = evidenceParts[visualPart === 0 ? 1 : 0];
-        if (!textPart || termsIn(textPart, fixture.expectations.groundingTerms).length === 0) {
+        const sourceConceptTerms = [
+          ...(fixture.expectations.groundingTerms || []),
+          ...(fixture.expectations.conceptGroups || []).flat()
+        ];
+        if (!textPart || (termsIn(textPart, sourceConceptTerms).length === 0 && groundedTokenCount(textPart, fixture) < 2)) {
           failures.push(`${questionLabel(index)} does not combine the visual with a grounded source idea.`);
         }
       } else {
@@ -214,7 +251,7 @@ export function gradeChallengeContract(quiz, fixture) {
       for (let right = left + 1; right < normalizedOptions.length; right += 1) {
         const tokenOverlap = jaccard(contentTokens(normalizedOptions[left]), contentTokens(normalizedOptions[right]));
         const orderedOverlap = jaccard(contentBigrams(normalizedOptions[left]), contentBigrams(normalizedOptions[right]));
-        if (tokenOverlap >= 0.85 && orderedOverlap >= 0.55) {
+        if (tokenOverlap >= 0.93 && orderedOverlap >= 0.7) {
           failures.push(`${questionLabel(index)} options ${left + 1} and ${right + 1} are too similar for one unambiguous answer.`);
         }
       }

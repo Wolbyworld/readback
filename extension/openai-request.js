@@ -4,6 +4,7 @@ import { buildQuizSchema, validateQuizShape } from "./quiz-schema.js";
 export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 export const DEFAULT_MODEL = "gpt-5.6-luna";
 export const OPENAI_TIMEOUT_MS = 110000;
+export const OPENAI_CHALLENGE_TIMEOUT_MS = 180000;
 
 const QUESTION_COUNTS = new Set([3, 5, 7, 10]);
 const OPTION_COUNTS = new Set([2, 3, 4, 5]);
@@ -112,7 +113,7 @@ export function buildOpenAIRequest(input, model = DEFAULT_MODEL) {
   }
 
   const answerBudget = 2500 + input.settings.questionCount * (350 + input.settings.optionCount * 120);
-  const reasoningBudget = input.settings.level === "challenge" ? 6500 : input.settings.level === "explain" ? 2500 : 0;
+  const reasoningBudget = input.settings.level === "challenge" ? 10000 : input.settings.level === "explain" ? 2500 : 0;
 
   return {
     request: {
@@ -196,7 +197,7 @@ export function mapOpenAIHttpError(status) {
 export async function createQuizWithOpenAI(input, apiKey, options = {}) {
   if (typeof apiKey !== "string" || !apiKey) throw new ReadbackApiError("MISSING_API_KEY", "Add an OpenAI API key before you make a quiz.", 401);
   const fetchImpl = options.fetchImpl || fetch;
-  const timeoutMs = options.timeoutMs ?? OPENAI_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? (input.settings.level === "challenge" ? OPENAI_CHALLENGE_TIMEOUT_MS : OPENAI_TIMEOUT_MS);
   const { request, mediaRefs } = buildOpenAIRequest(input, options.model || DEFAULT_MODEL);
   const invalidQuiz = () => new ReadbackApiError("QUIZ_INVALID", "OpenAI returned a quiz Readback could not use. Please try again.", 502);
 
@@ -233,6 +234,7 @@ export async function createQuizWithOpenAI(input, apiKey, options = {}) {
     const payload = await response.json().catch(() => null);
     const outputText = extractOutputText(payload);
     let quiz = null;
+    let invalidReason = outputText ? "The response was not valid JSON." : `The response had no quiz text (${payload?.status || "unknown status"}).`;
     if (outputText) {
       try {
         quiz = JSON.parse(outputText);
@@ -241,7 +243,9 @@ export async function createQuizWithOpenAI(input, apiKey, options = {}) {
       }
     }
     const shapeError = quiz && validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level);
+    if (shapeError) invalidReason = shapeError;
     if (!quiz || shapeError) {
+      options.onInvalid?.({ attempt: attempt + 1, reason: invalidReason });
       if (attempt === 0) continue;
       throw invalidQuiz();
     }

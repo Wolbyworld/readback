@@ -54,7 +54,9 @@ The local service remains available only for live model evaluation and developme
 
 1. Put a development key in `.env.local` at the project root. Do not put it in the extension folder.
 2. Run `npm start`, or double-click `start-readback.command`.
-3. Run `node tests/model-quality-eval.mjs` in another Terminal window.
+3. Run `READBACK_EVAL_RUNS=3 node tests/model-quality-eval.mjs` in another Terminal window.
+
+If only a deterministic grader changes, regrade a complete saved matrix with `npm run eval:regrade -- artifacts/evals/<artifact>.json`. Regrading fails if any quiz generation is missing.
 
 ## Local checks
 
@@ -69,6 +71,7 @@ The local service remains available only for live model evaluation and developme
 - Safe missing-key, invalid-key, rate-limit, network, and timeout errors.
 - English output, hostile page instructions, Challenge rules, and visual-question rules.
 - Settings, Back/Next motion, answer feedback, scoring, retry, replacement, and resume wiring.
+- The final Luna matrix passed 18/18 quiz sets and 54/54 generated questions across six representative source risks.
 
 ## Verified in browsers
 

@@ -306,6 +306,9 @@ async function activateTab(tabId, tab = {}) {
 }
 
 async function resetTab(tabId, tab = {}) {
+  if (state.tabId === tabId && state.abortController) {
+    cancelGeneration(false);
+  }
   await Promise.all([
     chrome.storage.session.remove(tabStateKey(tabId)),
     deleteTabMedia(tabId)
@@ -380,6 +383,7 @@ async function generateQuiz() {
   state.abortController = controller;
   const requestId = crypto.randomUUID();
   const generationSettings = { ...state.settings };
+  let generationPageUrl = state.pageUrl;
   state.generationRequestId = requestId;
   showScreen("loading");
   cycleLoadingMessage();
@@ -392,8 +396,9 @@ async function generateQuiz() {
       throw new Error("This page does not have enough readable text for a useful quiz.");
     }
 
+    generationPageUrl = page.url || generationPageUrl;
     state.pageTitle = page.title || state.pageTitle;
-    state.pageUrl = page.url || state.pageUrl;
+    state.pageUrl = generationPageUrl;
     const media = buildMediaMap(page);
     const generated = await sendWorkerMessage({
       type: "READBACK_GENERATE_QUIZ",
@@ -403,7 +408,11 @@ async function generateQuiz() {
     });
     if (controller.signal.aborted) return;
     if (!generated?.quiz || !Array.isArray(generated.quiz.questions)) throw new Error("Readback received an invalid quiz.");
-    if (state.tabId !== generationTabId) return;
+    if (
+      state.tabId !== generationTabId ||
+      state.pageUrl !== generationPageUrl ||
+      state.generationRequestId !== requestId
+    ) return;
 
     state.media = media;
     state.quiz = generated.quiz;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildOpenAIRequest, createQuizWithOpenAI, validateGenerationInput } from "../extension/openai-request.js";
+import { buildOpenAIRequest, createQuizWithOpenAI, OPENAI_CHALLENGE_TIMEOUT_MS, OPENAI_TIMEOUT_MS, validateGenerationInput } from "../extension/openai-request.js";
 
 const PLACEHOLDER_KEY = "not-a-real-api-key-value-12345";
 const PIXEL = "data:image/png;base64,QUJDRA==";
@@ -27,9 +27,10 @@ test("the direct Responses request uses Luna, high Challenge reasoning, strict s
   assert.equal(request.model, "gpt-5.6-luna");
   assert.equal(request.store, false);
   assert.deepEqual(request.reasoning, { effort: "high" });
-  assert.equal(request.max_output_tokens, 11490);
+  assert.equal(request.max_output_tokens, 14990);
   assert.equal(request.text.format.strict, true);
   assert.equal(request.text.format.schema.properties.questions.items.properties.prompt.pattern, "^(Scenario|Comparison|Counterfactual):");
+  assert.equal(request.text.format.schema.properties.source_summary.pattern, "^[^\\n]+[.!?]$");
   assert.deepEqual(mediaRefs, ["none", "visual_1", "visual_2"]);
   assert.deepEqual(request.input[0].content.slice(1).map((item) => item.image_url), [PIXEL, PIXEL]);
 });
@@ -80,6 +81,11 @@ test("a slow OpenAI request stops at the timeout with a safe error", async () =>
   );
 });
 
+test("Challenge gets more time without slowing the normal levels", () => {
+  assert.equal(OPENAI_TIMEOUT_MS, 110000);
+  assert.equal(OPENAI_CHALLENGE_TIMEOUT_MS, 180000);
+});
+
 test("an invalid model quiz is retried once before it reaches the learner", async () => {
   const makeQuestion = (index) => ({
     prompt: `Scenario: Combine source ideas for case ${index + 1}.`,
@@ -100,13 +106,46 @@ test("an invalid model quiz is retried once before it reaches the learner", asyn
   const invalidQuiz = structuredClone(validQuiz);
   invalidQuiz.questions[0].options[0] += " 必要";
   let calls = 0;
+  const invalidReasons = [];
   const fetchImpl = async () => {
     calls += 1;
     const quiz = calls === 1 ? invalidQuiz : validQuiz;
     return new Response(JSON.stringify({ output_text: JSON.stringify(quiz) }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
-  const quiz = await createQuizWithOpenAI(validInput(), PLACEHOLDER_KEY, { fetchImpl, random: () => 0.4 });
+  const quiz = await createQuizWithOpenAI(validInput(), PLACEHOLDER_KEY, {
+    fetchImpl,
+    random: () => 0.4,
+    onInvalid: (failure) => invalidReasons.push(failure)
+  });
   assert.equal(calls, 2);
+  assert.deepEqual(invalidReasons, [{ attempt: 1, reason: "Question 1 contains non-English script." }]);
   assert.equal(quiz.questions.length, 3);
   assert.equal(new Set(quiz.questions.map((question) => question.answer_index)).size, 3);
+});
+
+test("a summary must end as a complete sentence", async () => {
+  const input = validInput();
+  const question = {
+    prompt: "Scenario: Combine the two source ideas for this case.",
+    options: ["Complete correct answer", "First wrong answer", "Second wrong answer", "Third wrong answer"],
+    answer_index: 0,
+    explanation: "Correct: The two source ideas support the complete answer.",
+    option_feedback: [
+      "Fits: The two source ideas support this answer.",
+      "Fails: This misses the first idea. Correct: Both ideas support the answer.",
+      "Fails: This reverses the second idea. Correct: Both ideas support the answer.",
+      "Fails: This adds an outside claim. Correct: Both ideas support the answer."
+    ],
+    evidence: "Evidence A: The first source idea applies; Evidence B: The second source idea also applies",
+    image_ref: "none",
+    image_alt: ""
+  };
+  const invalidQuiz = { title: "A quiz", source_summary: "This summary stops at the", questions: [question, question, question] };
+  const fetchImpl = async () => new Response(JSON.stringify({ output_text: JSON.stringify(invalidQuiz) }), { status: 200 });
+  const invalidReasons = [];
+  await assert.rejects(
+    createQuizWithOpenAI(input, PLACEHOLDER_KEY, { fetchImpl, onInvalid: (failure) => invalidReasons.push(failure.reason) }),
+    (error) => error.code === "QUIZ_INVALID"
+  );
+  assert.deepEqual(invalidReasons, ["The quiz has no usable summary.", "The quiz has no usable summary."]);
 });

@@ -92,6 +92,19 @@ test("a replacement keeps the saved quiz until a successful response arrives", a
   assert.doesNotMatch(generation, /state\.quiz\s*=\s*null/);
 });
 
+test("same-tab navigation cancels generation and rejects a late page response", async () => {
+  const panel = await readFile(panelUrl, "utf8");
+  const reset = panel.slice(panel.indexOf("async function resetTab"), panel.indexOf("function renderCurrentState"));
+  const generation = panel.slice(panel.indexOf("async function generateQuiz"), panel.indexOf("function cancelGeneration"));
+
+  assert.match(reset, /state\.tabId === tabId && state\.abortController/);
+  assert.match(reset, /cancelGeneration\(false\)/);
+  assert.ok(reset.indexOf("cancelGeneration(false)") < reset.indexOf("chrome.storage.session.remove"));
+  assert.match(generation, /let generationPageUrl = state\.pageUrl/);
+  assert.match(generation, /state\.pageUrl !== generationPageUrl/);
+  assert.match(generation, /state\.generationRequestId !== requestId/);
+});
+
 test("the stack card can shrink and scroll at short panel sizes", async () => {
   const css = await readFile(new URL("../extension/sidepanel.css", import.meta.url), "utf8");
 

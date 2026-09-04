@@ -6,7 +6,7 @@ export function buildQuizSchema(questionCount, optionCount, imageRefs, level = "
     required: ["title", "source_summary", "questions"],
     properties: {
       title: { type: "string", minLength: 1, maxLength: 90 },
-      source_summary: { type: "string", minLength: 1, maxLength: 260 },
+      source_summary: { type: "string", minLength: 1, maxLength: 260, pattern: "^[^\\n]+[.!?]$" },
       questions: {
         type: "array",
         minItems: questionCount,
@@ -85,6 +85,6 @@ export function validateQuizShape(quiz, questionCount, optionCount, imageRefs, l
     if (learnerText(question).some((value) => typeof value === "string" && UNEXPECTED_SCRIPT.test(value))) return `Question ${index + 1} contains non-English script.`;
   }
   if (typeof quiz.title !== "string" || !quiz.title.trim() || quiz.title.length >= 90 || UNEXPECTED_SCRIPT.test(quiz.title)) return "The quiz has no usable title.";
-  if (typeof quiz.source_summary !== "string" || !quiz.source_summary.trim() || quiz.source_summary.length >= 260 || DANGLING_END.test(quiz.source_summary.trim()) || UNEXPECTED_SCRIPT.test(quiz.source_summary)) return "The quiz has no usable summary.";
+  if (typeof quiz.source_summary !== "string" || !quiz.source_summary.trim() || quiz.source_summary.length >= 260 || !/[.!?]$/.test(quiz.source_summary.trim()) || DANGLING_END.test(quiz.source_summary.trim()) || UNEXPECTED_SCRIPT.test(quiz.source_summary)) return "The quiz has no usable summary.";
   return null;
 }

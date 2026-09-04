@@ -120,12 +120,41 @@ test("grounding grading permits a clearly rejected numeric distractor", () => {
   assert.equal(grade.passed, true, grade.failures.join("\n"));
 });
 
+test("grounding grading permits an explicit difference derived from shown source values", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[0].explanation = "Correct: The 25% rate exceeds the 14% rate by 11 percentage points.";
+  const fixture = getModelQualityFixture("data-heavy-article");
+  const grade = gradeGroundingAndEvidence(quiz, fixture);
+  assert.equal(grade.failures.some((failure) => /unsupported number 11/.test(failure)), false, grade.failures.join("\n"));
+});
+
 test("duplicate grading catches near-identical questions", () => {
   const quiz = validChallengeQuiz();
   quiz.questions[1].prompt = quiz.questions[0].prompt.replace("Scenario:", "Comparison:");
   const grade = gradeNoDuplicateQuestions(quiz);
   assert.equal(grade.passed, false);
   assert.match(grade.failures.join(" "), /duplicates/);
+});
+
+test("duplicate grading catches the same evidence and answer under a rewritten prompt", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[1] = structuredClone(quiz.questions[0]);
+  quiz.questions[1].prompt = "Scenario: A second city changes its zoning and permit sequence. Which response follows?";
+  const grade = gradeNoDuplicateQuestions(quiz, getModelQualityFixture("long-editorial"));
+  assert.equal(grade.passed, false);
+  assert.match(grade.failures.join(" "), /same source concepts/);
+});
+
+test("duplicate grading permits broad shared labels with different evidence and answer logic", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[0].prompt = "Comparison: Should four cohort rates be averaged equally or weighted by row size?";
+  quiz.questions[0].evidence = "Evidence A: new mobile is the largest row; Evidence B: equal row averages misstate the overall conversion rate";
+  quiz.questions[0].options[quiz.questions[0].answer_index] = "Weight each cohort rate by its eligible visits";
+  quiz.questions[1].prompt = "Comparison: Which visitor and device combination has the strongest observed rate?";
+  quiz.questions[1].evidence = "Evidence A: returning visitors exceed new visitors; Evidence B: desktop exceeds mobile within both groups";
+  quiz.questions[1].options[quiz.questions[1].answer_index] = "Returning desktop is strongest while new mobile is weakest";
+  const grade = gradeNoDuplicateQuestions(quiz, getModelQualityFixture("data-heavy-article"));
+  assert.equal(grade.passed, true, grade.failures.join("\n"));
 });
 
 test("challenge grading rejects one-source recall and copied answers", () => {
@@ -156,6 +185,18 @@ test("challenge grading permits parallel options that assign opposite segment pa
     "Returning mobile is strongest while new desktop is weakest"
   ];
   const grade = gradeChallengeContract(quiz, getModelQualityFixture("long-editorial"));
+  assert.equal(grade.failures.some((failure) => /too similar/.test(failure)), false, grade.failures.join("\n"));
+});
+
+test("challenge grading permits a clear mirrored method contrast", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[0].options = [
+    "Compressor cooling meets the target with less input and no powered compressor",
+    "Passive cooling meets the target with less input and no powered compressor",
+    "Both methods use equal input under controlled conditions",
+    "Passive cooling proves a lower purchase cost"
+  ];
+  const grade = gradeChallengeContract(quiz, getModelQualityFixture("science-with-diagram"));
   assert.equal(grade.failures.some((failure) => /too similar/.test(failure)), false, grade.failures.join("\n"));
 });
 

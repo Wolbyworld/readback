@@ -10,7 +10,6 @@ const HOST = "127.0.0.1";
 const PORT = Number(process.env.READBACK_PORT || 41739);
 const DEFAULT_MODEL = process.env.READBACK_MODEL || "gpt-5.6-luna";
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-const OPENAI_TIMEOUT_MS = 110000;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export async function loadApiKey(envPath = resolve(ROOT, ".env.local")) {
@@ -32,7 +31,7 @@ export async function loadApiKey(envPath = resolve(ROOT, ".env.local")) {
 }
 
 async function callOpenAI(input, apiKey) {
-  return createQuizWithOpenAI(input, apiKey, { model: DEFAULT_MODEL, timeoutMs: OPENAI_TIMEOUT_MS });
+  return createQuizWithOpenAI(input, apiKey, { model: DEFAULT_MODEL });
 }
 
 function corsHeaders(origin) {
