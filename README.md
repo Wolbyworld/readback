@@ -8,7 +8,7 @@ Readback turns the page in your active browser tab into a short learning quiz. I
 - Uses 2 to 5 answer options.
 - Supports Recall, Explain, Apply, and Challenge levels. Challenge questions combine source ideas in a new scenario, comparison, or counterfactual.
 - Shows all quiz controls on the start screen and saves changes automatically.
-- Reads useful page text, visible diagrams, and meaningful images.
+- Reads useful page text, visible diagrams, charts, and meaningful images.
 - Can make an image question when the visual adds learning value.
 - Always writes the quiz in English.
 - Uses `gpt-5.6-luna` with low reasoning.
@@ -37,7 +37,7 @@ Chrome uses the same steps at `chrome://extensions`.
 
 ## Private by design
 
-Readback sends data only after you click **Make my quiz**. It sends the readable page text, the visible page capture, and up to three useful page images to OpenAI. The local service binds only to `127.0.0.1`. It does not log page content. The OpenAI request uses `store: false`.
+Readback sends data only after you click **Make my quiz**. It sends the readable page text and up to three useful page visuals to OpenAI. If no useful visual can be extracted, it sends the visible page capture instead. The local service binds only to `127.0.0.1`. It does not log page content. The OpenAI request uses `store: false`.
 
 Browser system pages, extension stores, and some protected pages cannot be read. On those pages, open a normal website and try again.
 
