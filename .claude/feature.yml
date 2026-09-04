@@ -1,0 +1,7 @@
+base_branch: main
+review_threshold: 9
+extra_gates:
+  - npm test
+  - node --check extension/service-worker.js
+  - node --check extension/sidepanel.js
+

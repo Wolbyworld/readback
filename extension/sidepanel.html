@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Readback</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true">R</div>
+      <div class="brand-copy">
+        <strong>Readback</strong>
+        <span id="headerMeta">Quiz this page</span>
+      </div>
+      <span class="tab-marker" aria-label="Quiz saved for this tab"><i></i> THIS TAB</span>
+    </header>
+
+    <main>
+      <section class="screen start-screen is-active" id="startScreen">
+        <div class="start-index"><span>PAGE</span><b id="pageStatus">READY</b></div>
+        <h1>Turn this page into a test.</h1>
+        <p class="page-title" id="pageTitle">Current page</p>
+
+        <form class="quick-settings" id="quickSettings" aria-label="Quiz setup">
+          <div class="setup-heading"><span>QUIZ SETUP</span><small>Changes save automatically</small></div>
+          <fieldset>
+            <legend>Questions</legend>
+            <div class="quick-options four-up">
+              <label><input type="radio" name="questionCount" value="3"><span>3</span></label>
+              <label><input type="radio" name="questionCount" value="5"><span>5</span></label>
+              <label><input type="radio" name="questionCount" value="7"><span>7</span></label>
+              <label><input type="radio" name="questionCount" value="10"><span>10</span></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Choices</legend>
+            <div class="quick-options four-up">
+              <label><input type="radio" name="optionCount" value="2"><span>2</span></label>
+              <label><input type="radio" name="optionCount" value="3"><span>3</span></label>
+              <label><input type="radio" name="optionCount" value="4"><span>4</span></label>
+              <label><input type="radio" name="optionCount" value="5"><span>5</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="depth-field">
+            <legend>Depth</legend>
+            <div class="quick-options three-up">
+              <label><input type="radio" name="level" value="recall"><span>Recall</span></label>
+              <label><input type="radio" name="level" value="explain"><span>Explain</span></label>
+              <label><input type="radio" name="level" value="apply"><span>Apply</span></label>
+            </div>
+            <p id="levelHelp">Use the ideas in a new case.</p>
+          </fieldset>
+        </form>
+
+        <button class="primary-button" id="generateButton" type="button">
+          <span>Make my quiz</span><span aria-hidden="true">→</span>
+        </button>
+        <p class="privacy-note">Sent only when you click. Text and useful page images go to OpenAI. No history or analytics.</p>
+      </section>
+
+      <section class="screen access-screen" id="accessScreen" aria-live="polite">
+        <span class="access-code">PAGE ACCESS</span>
+        <h2>Let Readback read this page.</h2>
+        <p>Vivaldi does not grant page access when you open its permanent panel. Allow website access once, then Readback can make a separate quiz for every tab.</p>
+        <button class="primary-button" id="accessButton" type="button"><span>Allow website access</span><span>→</span></button>
+        <p class="access-note" id="accessNote">Your browser will show a permission prompt. Readback still sends page content only when you start a quiz.</p>
+        <button class="text-button" id="accessHomeButton" type="button">Not now</button>
+      </section>
+
+      <section class="screen loading-screen" id="loadingScreen" aria-live="polite">
+        <div class="loading-stack" aria-hidden="true">
+          <i></i><i></i><i></i>
+        </div>
+        <p class="loading-kicker">READING THE PAGE</p>
+        <h2 id="loadingMessage">Finding the ideas worth testing…</h2>
+        <div class="loading-line"><i></i></div>
+        <button class="text-button" id="cancelButton" type="button">Cancel</button>
+      </section>
+
+      <section class="screen quiz-screen" id="quizScreen">
+        <div class="progress-block">
+          <div><span id="progressLabel">Question 1 of 5</span><b id="progressPercent">20%</b></div>
+          <div class="progress-track"><i id="progressBar"></i></div>
+        </div>
+
+        <div class="card-stage">
+          <section class="question-card" id="questionCard" aria-live="polite">
+            <div class="card-index"><span id="cardNumber">01</span><small id="cardLevel">APPLY</small></div>
+            <figure class="question-image is-hidden" id="questionFigure">
+              <img id="questionImage" alt="">
+              <figcaption id="questionImageCaption"></figcaption>
+            </figure>
+            <h2 id="questionText"></h2>
+            <div class="answers" id="answers"></div>
+            <p class="choice-status" id="choiceStatus">Choose one answer.</p>
+          </section>
+        </div>
+
+        <footer class="quiz-actions">
+          <button class="secondary-button" id="backButton" type="button">← Back</button>
+          <button class="primary-button" id="nextButton" type="button">Next →</button>
+        </footer>
+      </section>
+
+      <section class="screen results-screen" id="resultsScreen">
+        <div class="result-rule"><span>QUIZ COMPLETE</span><span id="resultModel">LUNA</span></div>
+        <div class="score-lockup"><b id="scoreValue">0/5</b><p id="scoreMessage">First-pass understanding</p></div>
+        <div class="result-actions">
+          <button class="primary-button" id="retryButton" type="button"><span>Try again</span><span>↻</span></button>
+          <button class="secondary-button" id="newQuizButton" type="button">New quiz</button>
+        </div>
+        <details class="review" id="reviewDetails">
+          <summary>Review answers <span>↓</span></summary>
+          <div id="reviewList"></div>
+        </details>
+      </section>
+
+      <section class="screen error-screen" id="errorScreen" aria-live="assertive">
+        <span class="error-code">PAUSE</span>
+        <h2 id="errorTitle">Readback could not start.</h2>
+        <p id="errorMessage"></p>
+        <button class="primary-button" id="errorRetryButton" type="button"><span>Try again</span><span>↻</span></button>
+        <button class="text-button" id="errorHomeButton" type="button">Back to start</button>
+      </section>
+    </main>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
