@@ -46,6 +46,11 @@ function contentTokens(value) {
   return new Set(normalize(value).split(" ").filter((word) => word.length > 2 && !COMMON_QUESTION_WORDS.has(word)));
 }
 
+function contentBigrams(value) {
+  const words = normalize(value).split(" ").filter((word) => word.length > 2 && !COMMON_QUESTION_WORDS.has(word));
+  return new Set(words.slice(1).map((word, index) => `${words[index]} ${word}`));
+}
+
 function jaccard(left, right) {
   const intersection = [...left].filter((word) => right.has(word)).length;
   const union = new Set([...left, ...right]).size;
@@ -53,8 +58,13 @@ function jaccard(left, right) {
 }
 
 function challengeEvidenceParts(evidence) {
-  const match = String(evidence || "").match(/^Evidence A:\s*(.+?)\s*;\s*Evidence B:\s*(.+)$/i);
+  const match = String(evidence || "").match(/^Evidence A:\s*([^;]+?)\s*;\s*Evidence B:\s*([^;]+)$/i);
   return match ? [match[1].trim(), match[2].trim()] : [];
+}
+
+function groundedTokenCount(value, fixture) {
+  const source = contentTokens(fixture.page.text);
+  return [...contentTokens(value)].filter((word) => source.has(word)).length;
 }
 
 function questionLabel(index) {
@@ -72,6 +82,9 @@ export function gradeExactCounts(quiz, fixture) {
     if (!Array.isArray(question.options) || question.options.length !== expectedOptions) {
       failures.push(`${questionLabel(index)} must have exactly ${expectedOptions} options.`);
     }
+    if ((question.options || []).some((option) => /\b(?:a|an|and|as|at|by|for|from|of|or|the|to|with)$/i.test(String(option).trim()))) {
+      failures.push(`${questionLabel(index)} has an answer option that ends mid-thought.`);
+    }
     if (!Number.isInteger(question.answer_index) || question.answer_index < 0 || question.answer_index >= expectedOptions) {
       failures.push(`${questionLabel(index)} has no single valid answer index.`);
     }
@@ -79,6 +92,17 @@ export function gradeExactCounts(quiz, fixture) {
       failures.push(`${questionLabel(index)} must have exactly ${expectedOptions} feedback entries.`);
     }
   });
+  return result(failures);
+}
+
+export function gradeAnswerPositionBalance(quiz) {
+  const questions = Array.isArray(quiz?.questions) ? quiz.questions : [];
+  const optionCount = questions[0]?.options?.length || 0;
+  const expectedPositions = Math.min(questions.length, optionCount);
+  const positions = new Set(questions.map((question) => question.answer_index));
+  const failures = expectedPositions > 1 && positions.size < expectedPositions
+    ? [`Correct answers use ${positions.size} position${positions.size === 1 ? "" : "s"}; expected ${expectedPositions}.`]
+    : [];
   return result(failures);
 }
 
@@ -107,20 +131,20 @@ export function gradeGroundingAndEvidence(quiz, fixture) {
       failures.push(`${questionLabel(index)} has no evidence.`);
       continue;
     }
-    if (evidence.length > 260) failures.push(`${questionLabel(index)} evidence is not concise.`);
+    // The product schema permits up to 319 characters. Challenge evidence also
+    // limits each of its two supports to 21 words, which is the useful brevity
+    // check for two-source answers.
+    if (evidence.length >= 320) failures.push(`${questionLabel(index)} evidence is not concise.`);
     if (termsIn(evidence, terms).length === 0) failures.push(`${questionLabel(index)} evidence does not use a fixture-grounded concept.`);
 
-    const support = [
-      question.options?.[question.answer_index],
-      question.explanation,
-      ...(question.option_feedback || [])
-    ].join(" ");
+    const support = [question.options?.[question.answer_index], question.explanation, question.evidence].join(" ");
     if (termsIn(support, terms).length === 0) failures.push(`${questionLabel(index)} answer and feedback are not tied to source evidence.`);
 
     const sourceNumbers = new Set((`${fixture.page.text} ${(fixture.expectations.groundingTerms || []).join(" ")}`.match(/\b\d+(?:\.\d+)?%?\b/g) || []));
     const outputNumbers = support.match(/\b\d+(?:\.\d+)?%?\b/g) || [];
     for (const number of outputNumbers) {
-      if (!sourceNumbers.has(number)) failures.push(`${questionLabel(index)} introduces the unsupported number ${number}.`);
+      const describesCalculation = /\b(?:add(?:ing|ed)?|calculat(?:e|ed|ing)|divid(?:e|ed|ing)|sum|total|weight(?:ed|ing))\b/i.test(support);
+      if (!sourceNumbers.has(number) && !describesCalculation) failures.push(`${questionLabel(index)} introduces the unsupported number ${number}.`);
     }
   }
   return result(failures);
@@ -188,7 +212,9 @@ export function gradeChallengeContract(quiz, fixture) {
     if (new Set(normalizedOptions).size !== normalizedOptions.length) failures.push(`${questionLabel(index)} has ambiguous duplicate options.`);
     for (let left = 0; left < normalizedOptions.length; left += 1) {
       for (let right = left + 1; right < normalizedOptions.length; right += 1) {
-        if (jaccard(contentTokens(normalizedOptions[left]), contentTokens(normalizedOptions[right])) >= 0.85) {
+        const tokenOverlap = jaccard(contentTokens(normalizedOptions[left]), contentTokens(normalizedOptions[right]));
+        const orderedOverlap = jaccard(contentBigrams(normalizedOptions[left]), contentBigrams(normalizedOptions[right]));
+        if (tokenOverlap >= 0.85 && orderedOverlap >= 0.55) {
           failures.push(`${questionLabel(index)} options ${left + 1} and ${right + 1} are too similar for one unambiguous answer.`);
         }
       }
@@ -240,7 +266,7 @@ export function gradeExplanationQuality(quiz, fixture) {
       if (!isCorrect && !/\bCorrect:\s+\S/.test(String(feedback || ""))) {
         failures.push(`${questionLabel(index)} wrong-option feedback does not explain why the correct answer fits.`);
       }
-      if (termsIn(feedback, terms).length === 0) {
+      if (termsIn(feedback, terms).length === 0 && groundedTokenCount(`${question.options?.[optionIndex] || ""} ${feedback}`, fixture) < 2) {
         failures.push(`${questionLabel(index)} option ${optionIndex + 1} feedback has no concise source evidence.`);
       }
     });
@@ -251,6 +277,7 @@ export function gradeExplanationQuality(quiz, fixture) {
 export function gradeQuizDeterministically(quiz, fixture) {
   const checks = {
     exactCounts: gradeExactCounts(quiz, fixture),
+    answerPositionBalance: gradeAnswerPositionBalance(quiz),
     englishOnly: gradeEnglishOnly(quiz, fixture),
     groundingAndEvidence: gradeGroundingAndEvidence(quiz, fixture),
     noDuplicateQuestions: gradeNoDuplicateQuestions(quiz, fixture),

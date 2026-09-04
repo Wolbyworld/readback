@@ -22,11 +22,12 @@ function validInput() {
   });
 }
 
-test("the direct Responses request uses Luna, low reasoning, strict schema, and every visual", () => {
+test("the direct Responses request uses Luna, high Challenge reasoning, strict schema, and every visual", () => {
   const { request, mediaRefs } = buildOpenAIRequest(validInput());
   assert.equal(request.model, "gpt-5.6-luna");
   assert.equal(request.store, false);
-  assert.deepEqual(request.reasoning, { effort: "low" });
+  assert.deepEqual(request.reasoning, { effort: "high" });
+  assert.equal(request.max_output_tokens, 11490);
   assert.equal(request.text.format.strict, true);
   assert.equal(request.text.format.schema.properties.questions.items.properties.prompt.pattern, "^(Scenario|Comparison|Counterfactual):");
   assert.deepEqual(mediaRefs, ["none", "visual_1", "visual_2"]);
@@ -77,4 +78,35 @@ test("a slow OpenAI request stops at the timeout with a safe error", async () =>
     createQuizWithOpenAI(validInput(), PLACEHOLDER_KEY, { fetchImpl: neverCompletes, timeoutMs: 1 }),
     (error) => error.code === "OPENAI_TIMEOUT"
   );
+});
+
+test("an invalid model quiz is retried once before it reaches the learner", async () => {
+  const makeQuestion = (index) => ({
+    prompt: `Scenario: Combine source ideas for case ${index + 1}.`,
+    options: ["Complete correct answer", "Plausible wrong answer", "Different wrong answer", "Final wrong answer"],
+    answer_index: 0,
+    explanation: "Correct: The two source ideas support the complete answer.",
+    option_feedback: [
+      "Fits: The two source ideas support this answer.",
+      "Fails: This misses the first idea. Correct: Both source ideas support the answer.",
+      "Fails: This reverses the second idea. Correct: Both source ideas support the answer.",
+      "Fails: This adds an outside claim. Correct: Both source ideas support the answer."
+    ],
+    evidence: "Evidence A: The first source idea applies; Evidence B: The second source idea also applies",
+    image_ref: "none",
+    image_alt: ""
+  });
+  const validQuiz = { title: "A complete quiz", source_summary: "Two linked ideas support each answer.", questions: Array.from({ length: 3 }, (_, index) => makeQuestion(index)) };
+  const invalidQuiz = structuredClone(validQuiz);
+  invalidQuiz.questions[0].options[0] += " 必要";
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    const quiz = calls === 1 ? invalidQuiz : validQuiz;
+    return new Response(JSON.stringify({ output_text: JSON.stringify(quiz) }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const quiz = await createQuizWithOpenAI(validInput(), PLACEHOLDER_KEY, { fetchImpl, random: () => 0.4 });
+  assert.equal(calls, 2);
+  assert.equal(quiz.questions.length, 3);
+  assert.equal(new Set(quiz.questions.map((question) => question.answer_index)).size, 3);
 });

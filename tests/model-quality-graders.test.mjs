@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   gradeChallengeContract,
+  gradeAnswerPositionBalance,
   gradeEnglishOnly,
   gradeExactCounts,
   gradeExplanationQuality,
@@ -12,13 +13,15 @@ import {
 } from "./model-quality-graders.mjs";
 import { getModelQualityFixture, MODEL_QUALITY_FIXTURES } from "./model-quality-fixtures.mjs";
 
-function feedback(term) {
-  return [
+function feedback(term, correctIndex = 1) {
+  const entries = [
     `Fails: This treats ${term} as an isolated fix. Correct: The source says the policies work together.`,
-    `Fits: The source connects ${term} with the second policy constraint.`,
+    `Fails: This overlooks the connection between ${term} and the second constraint. Correct: The source says the policies work together.`,
     `Fails: This reverses the stated effect of ${term}. Correct: The source supports a coordinated response.`,
     `Fails: This adds a claim that ${term} does not support. Correct: The source supports the combined response.`
   ];
+  entries[correctIndex] = `Fits: The source connects ${term} with the second policy constraint.`;
+  return entries;
 }
 
 function validChallengeQuiz() {
@@ -28,10 +31,10 @@ function validChallengeQuiz() {
     questions: [
       {
         prompt: "Scenario: A city permits taller homes, but projects still wait years for review. Which response best follows from the source?",
-        options: ["Cancel the zoning change", "Pair added zoning capacity with predictable permit reviews", "Replace permits with rent support", "Wait for demand to decline"],
-        answer_index: 1,
+        options: ["Pair added zoning capacity with predictable permit reviews", "Cancel the zoning change", "Replace permits with rent support", "Wait for demand to decline"],
+        answer_index: 0,
         explanation: "Correct: Zoning creates capacity, while predictable permits let allowed homes move forward.",
-        option_feedback: feedback("zoning and permits"),
+        option_feedback: feedback("zoning and permits", 0),
         evidence: "Evidence A: restrictive zoning limits how many homes can be built; Evidence B: slow permit reviews delay allowed homes",
         image_ref: "none",
         image_alt: ""
@@ -48,10 +51,10 @@ function validChallengeQuiz() {
       },
       {
         prompt: "Counterfactual: The city funds temporary rent support but stops adding homes. What problem remains unresolved?",
-        options: ["Permit deadlines become unsafe", "Housing supply still stays below demand", "Transit automatically becomes less crowded", "Current residents lose the right to return"],
-        answer_index: 1,
+        options: ["Permit deadlines become unsafe", "Transit automatically becomes less crowded", "Housing supply still stays below demand", "Current residents lose the right to return"],
+        answer_index: 2,
         explanation: "Correct: Rent support limits short-term harm, but only more homes address the supply shortage.",
-        option_feedback: feedback("rent support and supply"),
+        option_feedback: feedback("rent support and supply", 2),
         evidence: "Evidence A: temporary rent support can reduce displacement; Evidence B: protections are not substitutes for adding homes",
         image_ref: "none",
         image_alt: ""
@@ -74,7 +77,15 @@ test("the fixture set covers six representative source risks", () => {
 test("a grounded challenge quiz passes every deterministic grader", () => {
   const grade = gradeQuizDeterministically(validChallengeQuiz(), getModelQualityFixture("long-editorial"));
   assert.equal(grade.passed, true, grade.failures.join("\n"));
-  assert.equal(Object.keys(grade.checks).length, 7);
+  assert.equal(Object.keys(grade.checks).length, 8);
+});
+
+test("answer-position grading rejects a predictable answer column", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions.forEach((question) => { question.answer_index = 0; });
+  const grade = gradeAnswerPositionBalance(quiz);
+  assert.equal(grade.passed, false);
+  assert.match(grade.failures.join(" "), /Correct answers use 1 position/);
 });
 
 test("exact-count grading checks questions, options, answers, and feedback", () => {
@@ -101,6 +112,14 @@ test("grounding grading rejects prompt-injection output and unsupported numbers"
   assert.match(grade.failures.join(" "), /forbidden|unsupported number/);
 });
 
+test("grounding grading permits a clearly rejected numeric distractor", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[0].options[1] = "Exactly 99 homes";
+  quiz.questions[0].option_feedback[1] = "Fails: The source gives no 99-home figure. Correct: Zoning and permits must work together.";
+  const grade = gradeGroundingAndEvidence(quiz, getModelQualityFixture("long-editorial"));
+  assert.equal(grade.passed, true, grade.failures.join("\n"));
+});
+
 test("duplicate grading catches near-identical questions", () => {
   const quiz = validChallengeQuiz();
   quiz.questions[1].prompt = quiz.questions[0].prompt.replace("Scenario:", "Comparison:");
@@ -117,6 +136,27 @@ test("challenge grading rejects one-source recall and copied answers", () => {
   const grade = gradeChallengeContract(quiz, getModelQualityFixture("long-editorial"));
   assert.equal(grade.passed, false);
   assert.match(grade.failures.join(" "), /frame|two distinct|copies/);
+});
+
+test("challenge grading permits concise two-support evidence within the schema limit", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[0].evidence = "Evidence A: restrictive zoning limits how many homes can be built near jobs even when demand stays high across several growing city districts; Evidence B: predictable permit reviews help approved homes move forward instead of waiting years after zoning has already made construction possible";
+  assert.ok(quiz.questions[0].evidence.length > 260);
+  assert.ok(quiz.questions[0].evidence.length < 320);
+  const grade = gradeGroundingAndEvidence(quiz, getModelQualityFixture("long-editorial"));
+  assert.equal(grade.passed, true, grade.failures.join("\n"));
+});
+
+test("challenge grading permits parallel options that assign opposite segment pairs", () => {
+  const quiz = validChallengeQuiz();
+  quiz.questions[0].options = [
+    "New desktop is strongest while returning mobile is weakest",
+    "Returning desktop is strongest while new mobile is weakest",
+    "New mobile is strongest while returning desktop is weakest",
+    "Returning mobile is strongest while new desktop is weakest"
+  ];
+  const grade = gradeChallengeContract(quiz, getModelQualityFixture("long-editorial"));
+  assert.equal(grade.failures.some((failure) => /too similar/.test(failure)), false, grade.failures.join("\n"));
 });
 
 test("visual grading requires meaningful diagrams and rejects decorative media", () => {
@@ -138,7 +178,7 @@ test("visual grading requires meaningful diagrams and rejects decorative media",
 
 test("explanation grading requires selected-misconception feedback", () => {
   const quiz = validChallengeQuiz();
-  quiz.questions[0].option_feedback[0] = "Fails: This is wrong.";
+  quiz.questions[0].option_feedback[1] = "Fails: This is wrong.";
   const grade = gradeExplanationQuality(quiz, getModelQualityFixture("long-editorial"));
   assert.equal(grade.passed, false);
   assert.match(grade.failures.join(" "), /why the correct answer fits|source evidence/);

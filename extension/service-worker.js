@@ -54,6 +54,9 @@ function routeMessage(message, sender) {
     case "READBACK_KEY_STATUS":
       assertOnlyKeys(message, ["type"]);
       return storageReady.then(() => apiKeyStatus(chrome.storage));
+    case "READBACK_KEEP_ALIVE":
+      assertOnlyKeys(message, ["type"]);
+      return Promise.resolve({ active: true });
     case "READBACK_SAVE_API_KEY":
       assertOnlyKeys(message, ["type", "key", "mode"]);
       return storageReady.then(() => saveApiKey(chrome.storage, message.key, message.mode));

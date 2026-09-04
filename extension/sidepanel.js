@@ -17,6 +17,7 @@ const state = {
   pageTitle: "Current page",
   pageUrl: "",
   quiz: null,
+  quizSettings: null,
   media: {},
   index: 0,
   answers: [],
@@ -26,6 +27,7 @@ const state = {
   lastRequestId: null,
   switchRevision: 0,
   generationRequestId: null,
+  keepAliveTimer: null,
   keyStatus: { configured: false, mode: null },
   keyReturnScreen: "start",
   resumeAfterKeySave: false
@@ -53,6 +55,7 @@ function freshTabState(tabId, tab = {}) {
     pageUrl: tab.url || "",
     screen: "start",
     quiz: null,
+    quizSettings: null,
     media: {},
     index: 0,
     answers: [],
@@ -245,6 +248,7 @@ async function saveCurrentTabState() {
     pageUrl: state.pageUrl,
     screen: state.screen === "loading" ? "start" : state.screen,
     quiz: state.quiz,
+    quizSettings: state.quizSettings,
     index: state.index,
     answers: state.answers
   };
@@ -375,9 +379,11 @@ async function generateQuiz() {
   const controller = new AbortController();
   state.abortController = controller;
   const requestId = crypto.randomUUID();
+  const generationSettings = { ...state.settings };
   state.generationRequestId = requestId;
   showScreen("loading");
   cycleLoadingMessage();
+  startGenerationKeepAlive();
 
   try {
     const page = await sendWorkerMessage({ type: "READBACK_EXTRACT_PAGE", tabId: generationTabId });
@@ -393,7 +399,7 @@ async function generateQuiz() {
       type: "READBACK_GENERATE_QUIZ",
       requestId,
       page,
-      settings: state.settings
+      settings: generationSettings
     });
     if (controller.signal.aborted) return;
     if (!generated?.quiz || !Array.isArray(generated.quiz.questions)) throw new Error("Readback received an invalid quiz.");
@@ -401,6 +407,7 @@ async function generateQuiz() {
 
     state.media = media;
     state.quiz = generated.quiz;
+    state.quizSettings = generationSettings;
     state.index = 0;
     state.answers = Array(state.quiz.questions.length).fill(null);
     state.animating = false;
@@ -415,6 +422,7 @@ async function generateQuiz() {
     }
     if (state.tabId === generationTabId) showError(error);
   } finally {
+    stopGenerationKeepAlive();
     if (state.abortController === controller) state.abortController = null;
     if (state.generationRequestId === requestId) state.generationRequestId = null;
   }
@@ -425,8 +433,22 @@ function cancelGeneration(showStart = true) {
   state.abortController?.abort();
   state.abortController = null;
   state.generationRequestId = null;
+  stopGenerationKeepAlive();
   if (requestId) chrome.runtime.sendMessage({ type: "READBACK_CANCEL_GENERATION", requestId }).catch(() => {});
   if (showStart) showScreen("start");
+}
+
+function startGenerationKeepAlive() {
+  stopGenerationKeepAlive();
+  state.keepAliveTimer = window.setInterval(() => {
+    chrome.runtime.sendMessage({ type: "READBACK_KEEP_ALIVE" }).catch(() => {});
+  }, 15000);
+}
+
+function stopGenerationKeepAlive() {
+  if (state.keepAliveTimer == null) return;
+  window.clearInterval(state.keepAliveTimer);
+  state.keepAliveTimer = null;
 }
 
 function buildMediaMap(page) {
@@ -447,7 +469,7 @@ function renderQuestion() {
   $("#progressPercent").textContent = `${progress}%`;
   $("#progressBar").style.width = `${progress}%`;
   $("#cardNumber").textContent = String(state.index + 1).padStart(2, "0");
-  $("#cardLevel").textContent = state.settings.level.toUpperCase();
+  $("#cardLevel").textContent = (state.quizSettings?.level || state.settings.level).toUpperCase();
   $("#questionText").textContent = question.prompt;
 
   const media = state.media[question.image_ref];
@@ -501,9 +523,10 @@ function renderAnswerFeedback(question, selectedAnswer) {
   const selectedFeedback = question.option_feedback?.[selectedAnswer];
   const answer = document.createElement("p");
   answer.className = "feedback-copy";
-  answer.textContent = correct
-    ? (selectedFeedback || question.explanation)
-    : `Correct answer: ${question.options[question.answer_index]}. ${selectedFeedback || question.explanation}`;
+  const correctOption = String(question.options[question.answer_index] || "").replace(/[.!?]+$/, "");
+  answer.textContent = selectedFeedback || (correct
+    ? question.explanation
+    : `Correct answer: ${correctOption}. ${question.explanation}`);
   const evidence = document.createElement("p");
   evidence.className = "feedback-evidence";
   evidence.textContent = question.evidence;
@@ -570,7 +593,9 @@ function buildResults() {
     const heading = document.createElement("h3");
     heading.textContent = question.prompt;
     const response = document.createElement("p");
-    response.textContent = isCorrect ? `Your answer: ${chosen}` : `Your answer: ${chosen}. Correct answer: ${answer}.`;
+    const chosenText = String(chosen || "No answer").replace(/[.!?]+$/, "");
+    const answerText = String(answer || "").replace(/[.!?]+$/, "");
+    response.textContent = isCorrect ? `Your answer: ${chosenText}.` : `Your answer: ${chosenText}. Correct answer: ${answerText}.`;
     const explanation = document.createElement("p");
     explanation.textContent = question.explanation;
     const evidence = document.createElement("p");
@@ -711,6 +736,37 @@ chrome.tabs.onActivated?.addListener(({ tabId }) => {
     if (!state.keyStatus.configured && !state.quiz) openKeySetup();
   });
 });
+
+let activeTabSyncRunning = false;
+async function syncActiveTab() {
+  if (activeTabSyncRunning) return;
+  activeTabSyncRunning = true;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!Number.isInteger(tab?.id)) return;
+    const changedTab = tab.id !== state.tabId;
+    const changedPage = !changedTab && Boolean(tab.url) && tab.url !== state.pageUrl;
+    const changedTitle = !changedTab && Boolean(tab.title) && tab.title !== state.pageTitle;
+    if (changedPage) {
+      await resetTab(tab.id, tab);
+    } else if (changedTab || changedTitle) {
+      await activateTab(tab.id, tab);
+    }
+    if (changedTab || changedPage || changedTitle) {
+      if (!state.keyStatus.configured && !state.quiz) openKeySetup();
+    }
+  } catch {
+    // Vivaldi can briefly make the active tab unavailable while switching workspaces.
+  } finally {
+    activeTabSyncRunning = false;
+  }
+}
+
+// Vivaldi does not always forward tabs.onActivated to an already open web panel.
+// Keep the panel aligned with the visible tab without requiring a panel reload.
+setInterval(syncActiveTab, 750);
+window.addEventListener("focus", syncActiveTab);
+
 chrome.runtime.onMessage?.addListener((message) => {
   if (message?.type === "READBACK_TAB_RESET" && Number.isInteger(message.tabId) && message.tab && typeof message.tab === "object") {
     resetTab(message.tabId, {

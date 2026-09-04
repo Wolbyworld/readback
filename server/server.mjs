@@ -122,7 +122,7 @@ export async function startServer() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   startServer().then(() => {
     process.stdout.write(`Readback is ready at http://${HOST}:${PORT}\n`);
-    process.stdout.write(`Model: ${DEFAULT_MODEL} with low reasoning\n`);
+    process.stdout.write(`Model: ${DEFAULT_MODEL}; adaptive reasoning by quiz depth\n`);
     process.stdout.write("Keep this window open while you use the extension. Press Control-C to stop.\n");
   }).catch((error) => {
     process.stderr.write(`Readback could not start: ${error.message}\n`);

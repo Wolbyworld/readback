@@ -9,7 +9,7 @@ Readback turns the page in your active browser tab into a short learning quiz. I
 - Supports Recall, Explain, Apply, and Challenge levels.
 - Uses page text, useful diagrams, charts, and meaningful images.
 - Always writes the quiz in English.
-- Uses `gpt-5.6-luna` with low reasoning and strict quiz output.
+- Uses `gpt-5.6-luna` with adaptive reasoning: low for Recall and Apply, medium for Explain, and high for Challenge.
 - Gives feedback for every answer option.
 - Keeps each tab's quiz and answers separate for the current browser session.
 
@@ -65,7 +65,19 @@ The local service remains available only for live model evaluation and developme
 ## Verified in automated tests
 
 - Persistent, session-only, replacement, and removal key flows.
-- Direct Luna Responses API request with low reasoning, `store: false`, strict schema, and all visual references.
+- Direct Luna Responses API request with adaptive reasoning, `store: false`, strict schema, and all visual references.
 - Safe missing-key, invalid-key, rate-limit, network, and timeout errors.
 - English output, hostile page instructions, Challenge rules, and visual-question rules.
 - Settings, Back/Next motion, answer feedback, scoring, retry, replacement, and resume wiring.
+
+## Verified in browsers
+
+Readback 0.2.0 was tested on September 4, 2026 in Chrome for Testing 152 and Vivaldi 7.7.
+
+- The toolbar button opens the native Chrome side panel.
+- The Lenny's Newsletter design article creates a valid quiz in Vivaldi and Chrome.
+- A long Vivaldi Challenge request stays active until the quiz is ready.
+- An ocean-currents fixture creates a question that shows and uses a page diagram.
+- Lenny and ocean-currents quizzes keep separate question, answer, and progress state when tabs change.
+- Wrong answers show the failed choice, the correct explanation, and source evidence.
+- Back to setup, resume, and replacement quiz actions work.

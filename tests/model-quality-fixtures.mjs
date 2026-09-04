@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 const LONG_EDITORIAL_SECTION = `
 The city cannot solve its housing shortage with one isolated policy. Restrictive zoning limits how many homes can be built near jobs and frequent transit. Slow permit reviews then delay many of the homes that zoning does allow. Together, these limits keep supply below demand and put upward pressure on rents.
 
@@ -8,7 +10,43 @@ Transit capacity is part of the same system. More homes near a crowded rail line
 The policy should protect current residents during the transition. Temporary rent support and a right to return can reduce displacement while new supply is under construction. These protections are not substitutes for adding homes; they address the short-term harm while the supply response takes time.
 `;
 
-const TRANSPARENT_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+F98WAAAAAElFTkSuQmCC";
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const typeBuffer = Buffer.from(type, "ascii");
+  const size = Buffer.alloc(4);
+  size.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])));
+  return Buffer.concat([size, typeBuffer, data, checksum]);
+}
+
+function solidPngDataUrl(width, height, rgba) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const row = Buffer.alloc(width * 4 + 1);
+  for (let x = 0; x < width; x += 1) Buffer.from(rgba).copy(row, 1 + x * 4);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0))
+  ]);
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
+const DECORATIVE_COLOR_WASH = solidPngDataUrl(320, 180, [198, 218, 211, 255]);
 
 export const MODEL_QUALITY_FIXTURES = Object.freeze([
   {
@@ -52,12 +90,14 @@ The result supports an energy comparison for this one-hour workload. It does not
     },
     settings: { questionCount: 3, optionCount: 4, level: "challenge" },
     expectations: {
-      groundingTerms: ["passive", "compressor", "energy", "one-hour", "lower", "controlled", "38", "76"],
+      groundingTerms: ["passive", "compressor", "energy", "one-hour", "lower", "controlled", "room size", "starting temperature", "target temperature", "38", "76"],
       conceptGroups: [
         ["passive", "without a powered compressor"],
         ["compressor", "powered refrigeration"],
         ["same one-hour", "controlled", "held constant"],
-        ["38", "76", "lower energy"]
+        ["38", "76", "lower energy"],
+        ["one-hour workload", "energy comparison"],
+        ["purchase cost", "other climates", "comfort", "longer test"]
       ],
       visual: "required",
       meaningfulImageRefs: ["page_view"]
@@ -87,7 +127,8 @@ Traffic mix matters. The largest row was new mobile visitors, so a simple averag
       conceptGroups: [
         ["new", "returning", "visitor"],
         ["mobile", "desktop", "device"],
-        ["eligible", "denominator", "traffic mix"],
+        ["eligible", "denominator", "denominators", "traffic mix", "row sizes"],
+        ["simple average", "weighted", "overall rate", "overall conversion rate", "misstate"],
         ["observational", "association", "cannot prove"]
       ],
       visual: "forbidden"
@@ -149,13 +190,13 @@ Habitat matters as well as flowers. Bare soil, hollow stems, and some undisturbe
 
 The page header includes a decorative color wash. It contains no species, dates, measurements, labels, or instructional details. All facts needed for the quiz are in the article text.
       `.repeat(2),
-      images: [{ ref: "decorative_header", alt: "Decorative teal color wash", dataUrl: TRANSPARENT_PIXEL }],
+      images: [{ ref: "decorative_header", alt: "Decorative teal color wash", dataUrl: DECORATIVE_COLOR_WASH }],
       diagrams: [],
       screenshot: null
     },
     settings: { questionCount: 3, optionCount: 4, level: "apply" },
     expectations: {
-      groundingTerms: ["pollinator", "bloom", "native", "habitat", "flowers", "soil", "stems", "pesticide"],
+      groundingTerms: ["pollinator", "bloom", "native", "habitat", "flowers", "soil", "stems", "pesticide", "targeted control", "helpful insects", "necessary"],
       visual: "forbidden",
       decorativeImageRefs: ["decorative_header"]
     }

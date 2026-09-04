@@ -111,12 +111,15 @@ export function buildOpenAIRequest(input, model = DEFAULT_MODEL) {
     media.push({ type: "input_image", image_url: image.dataUrl, detail: "low" });
   }
 
+  const answerBudget = 2500 + input.settings.questionCount * (350 + input.settings.optionCount * 120);
+  const reasoningBudget = input.settings.level === "challenge" ? 6500 : input.settings.level === "explain" ? 2500 : 0;
+
   return {
     request: {
       model,
       store: false,
-      reasoning: { effort: "low" },
-      max_output_tokens: 7000,
+      reasoning: { effort: input.settings.level === "challenge" ? "high" : input.settings.level === "explain" ? "medium" : "low" },
+      max_output_tokens: Math.min(24000, answerBudget + reasoningBudget),
       input: [{
         role: "user",
         content: [
@@ -148,9 +151,43 @@ export function extractOutputText(payload) {
   return "";
 }
 
+export function balanceQuizAnswerPositions(quiz, random = Math.random) {
+  if (!Array.isArray(quiz?.questions) || quiz.questions.length === 0) return quiz;
+  const optionCount = quiz.questions[0]?.options?.length || 0;
+  if (optionCount < 2) return quiz;
+
+  const randomIndex = (length) => Math.floor(Math.max(0, Math.min(0.999999, Number(random()) || 0)) * length);
+  const shuffle = (values) => {
+    for (let index = values.length - 1; index > 0; index -= 1) {
+      const swapIndex = randomIndex(index + 1);
+      [values[index], values[swapIndex]] = [values[swapIndex], values[index]];
+    }
+    return values;
+  };
+  const targets = [];
+  while (targets.length < quiz.questions.length) {
+    const deck = shuffle(Array.from({ length: optionCount }, (_, index) => index));
+    if (targets.length && deck[0] === targets.at(-1)) [deck[0], deck[1]] = [deck[1], deck[0]];
+    targets.push(...deck);
+  }
+
+  quiz.questions.forEach((question, questionIndex) => {
+    const entries = question.options.map((option, index) => ({ option, feedback: question.option_feedback[index], correct: index === question.answer_index }));
+    const correct = entries.find((entry) => entry.correct);
+    const wrong = entries.filter((entry) => !entry.correct);
+    shuffle(wrong);
+    const target = targets[questionIndex];
+    wrong.splice(target, 0, correct);
+    question.options = wrong.map((entry) => entry.option);
+    question.option_feedback = wrong.map((entry) => entry.feedback);
+    question.answer_index = target;
+  });
+  return quiz;
+}
+
 export function mapOpenAIHttpError(status) {
   if (status === 401) return new ReadbackApiError("INVALID_API_KEY", "OpenAI did not accept this API key. Replace it and try again.", 401);
-  if (status === 429) return new ReadbackApiError("RATE_LIMITED", "OpenAI is receiving too many requests for this account. Wait a moment and try again.", 429);
+  if (status === 429) return new ReadbackApiError("RATE_LIMITED", "OpenAI limited this account. Check its API usage or wait a moment, then try again.", 429);
   if (status === 403) return new ReadbackApiError("OPENAI_ACCESS_DENIED", "This OpenAI account cannot use the selected model.", 403);
   if (status >= 500) return new ReadbackApiError("OPENAI_UNAVAILABLE", "OpenAI is not available now. Try again in a moment.", 502);
   return new ReadbackApiError("OPENAI_REQUEST_FAILED", "OpenAI could not create this quiz. Check the key and try again.", 400);
@@ -161,46 +198,56 @@ export async function createQuizWithOpenAI(input, apiKey, options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   const timeoutMs = options.timeoutMs ?? OPENAI_TIMEOUT_MS;
   const { request, mediaRefs } = buildOpenAIRequest(input, options.model || DEFAULT_MODEL);
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  if (options.signal?.aborted) controller.abort();
-  else options.signal?.addEventListener("abort", onAbort, { once: true });
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const invalidQuiz = () => new ReadbackApiError("QUIZ_INVALID", "OpenAI returned a quiz Readback could not use. Please try again.", 502);
 
-  let response;
-  try {
-    response = await fetchImpl(OPENAI_RESPONSES_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(request),
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      if (options.signal?.aborted) throw new ReadbackApiError("REQUEST_CANCELLED", "Quiz generation was cancelled.", 499);
-      throw new ReadbackApiError("OPENAI_TIMEOUT", "OpenAI took too long to answer. Try again.", 504);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener("abort", onAbort, { once: true });
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response;
+    try {
+      response = await fetchImpl(OPENAI_RESPONSES_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        if (options.signal?.aborted) throw new ReadbackApiError("REQUEST_CANCELLED", "Quiz generation was cancelled.", 499);
+        throw new ReadbackApiError("OPENAI_TIMEOUT", "OpenAI took too long to answer. Try again.", 504);
+      }
+      throw new ReadbackApiError("OPENAI_NETWORK", "Readback could not reach OpenAI. Check the connection and try again.", 502);
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", onAbort);
     }
-    throw new ReadbackApiError("OPENAI_NETWORK", "Readback could not reach OpenAI. Check the connection and try again.", 502);
-  } finally {
-    clearTimeout(timeout);
-    options.signal?.removeEventListener("abort", onAbort);
-  }
 
-  if (!response.ok) throw mapOpenAIHttpError(response.status);
-  const payload = await response.json().catch(() => null);
-  const outputText = extractOutputText(payload);
-  if (!outputText) throw new ReadbackApiError("QUIZ_INVALID", "OpenAI returned a quiz Readback could not use. Please try again.", 502);
-  let quiz;
-  try {
-    quiz = JSON.parse(outputText);
-  } catch {
-    throw new ReadbackApiError("QUIZ_INVALID", "OpenAI returned a quiz Readback could not use. Please try again.", 502);
+    if (!response.ok) throw mapOpenAIHttpError(response.status);
+    const payload = await response.json().catch(() => null);
+    const outputText = extractOutputText(payload);
+    let quiz = null;
+    if (outputText) {
+      try {
+        quiz = JSON.parse(outputText);
+      } catch {
+        // One automatic retry gives the one-click flow a chance to recover.
+      }
+    }
+    const shapeError = quiz && validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level);
+    if (!quiz || shapeError) {
+      if (attempt === 0) continue;
+      throw invalidQuiz();
+    }
+    balanceQuizAnswerPositions(quiz, options.random);
+    quiz.model = request.model;
+    return quiz;
   }
-  const shapeError = validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level);
-  if (shapeError) throw new ReadbackApiError("QUIZ_INVALID", "OpenAI returned a quiz Readback could not use. Please try again.", 502);
-  quiz.model = request.model;
-  return quiz;
+  throw invalidQuiz();
 }

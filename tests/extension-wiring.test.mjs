@@ -36,7 +36,13 @@ test("quiz state is stored and restored by browser tab", async () => {
 
   assert.match(panel, /const TAB_STATE_PREFIX = "readbackTab:"/);
   assert.match(panel, /tabStateKey\(state\.tabId\)/);
+  assert.match(panel, /quizSettings: state\.quizSettings/);
+  assert.match(panel, /state\.quizSettings\?\.level \|\| state\.settings\.level/);
   assert.match(panel, /chrome\.tabs\.onActivated/);
+  assert.match(panel, /setInterval\(syncActiveTab, 750\)/);
+  assert.match(panel, /const changedTab = tab\.id !== state\.tabId/);
+  assert.match(panel, /const changedPage = !changedTab/);
+  assert.match(panel, /await resetTab\(tab\.id, tab\)/);
   assert.match(worker, /chrome\.tabs\.onUpdated/);
   assert.match(worker, /READBACK_TAB_RESET/);
 });
@@ -70,7 +76,7 @@ test("the quiz gives immediate locked feedback and keeps setup available", async
   assert.match(panel, /state\.answers\[state\.index\] != null\) return/);
   assert.match(panel, /function returnToSetup/);
   assert.match(panel, /Make a replacement quiz/);
-  assert.match(css, /font-size: 13px/);
+  assert.match(css, /\.answers button \{[^}]*font-size: 14px/);
   assert.match(css, /clamp\(26px, 7\.4vw, 28px\)/);
   assert.doesNotMatch(css, /\.answers button:hover \{ padding-left/);
 });
@@ -93,6 +99,9 @@ test("the stack card can shrink and scroll at short panel sizes", async () => {
   assert.match(css, /@media \(max-height: 640px\)[\s\S]*?\.question-card \{ inset: 22px 23px 12px 17px;/);
   assert.match(css, /\.quick-options input:checked \+ span \{[^}]*border: 2px solid var\(--blue\);/);
   assert.doesNotMatch(css, /input:checked \+ span \{[^}]*background: var\(--blue\)/);
+  assert.match(css, /html, body \{ min-width: 0;/);
+  assert.match(css, /@media \(max-width: 280px\)[\s\S]*?\.quiz-actions \{[^}]*grid-template-columns: 1fr 1fr;/);
+  assert.match(css, /@media \(max-width: 280px\)[\s\S]*?\.depth-field \.quick-options \{[^}]*repeat\(2,/);
 });
 
 test("direct panel use can request website access with clear UI", async () => {
@@ -125,6 +134,20 @@ test("normal use calls OpenAI from the service worker without localhost", async 
   assert.match(panel, /READBACK_GENERATE_QUIZ/);
   assert.doesNotMatch(`${manifestText}\n${panel}`, /127\.0\.0\.1|localhost/);
   assert.doesNotMatch(panel, /\bfetch\s*\(/);
+});
+
+test("the open panel keeps long Vivaldi generations alive and stops cleanly", async () => {
+  const [worker, panel] = await Promise.all([
+    readFile(workerUrl, "utf8"),
+    readFile(panelUrl, "utf8")
+  ]);
+
+  assert.match(worker, /case "READBACK_KEEP_ALIVE"/);
+  assert.match(panel, /function startGenerationKeepAlive/);
+  assert.match(panel, /READBACK_KEEP_ALIVE/);
+  assert.match(panel, /}, 15000\);/);
+  assert.match(panel, /finally \{\s*stopGenerationKeepAlive\(\);/);
+  assert.match(panel, /function cancelGeneration[\s\S]*?stopGenerationKeepAlive\(\);/);
 });
 
 test("key setup supports persistent, session-only, replace, and remove flows", async () => {
