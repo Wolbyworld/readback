@@ -158,9 +158,11 @@ test("the open panel keeps long Vivaldi generations alive and stops cleanly", as
   assert.match(worker, /case "READBACK_KEEP_ALIVE"/);
   assert.match(panel, /function startGenerationKeepAlive/);
   assert.match(panel, /READBACK_KEEP_ALIVE/);
-  assert.match(panel, /}, 15000\);/);
-  assert.match(panel, /finally \{\s*stopGenerationKeepAlive\(\);/);
-  assert.match(panel, /function cancelGeneration[\s\S]*?stopGenerationKeepAlive\(\);/);
+  assert.match(panel, /startGenerationKeepAlive\(requestId\)/);
+  assert.match(panel, /finally \{\s*stopGenerationKeepAlive\(requestId\);/);
+  assert.match(panel, /function cancelGeneration[\s\S]*?stopGenerationKeepAlive\(requestId\);/);
+  assert.match(panel, /const ownsRequest = state\.generationRequestId === requestId/);
+  assert.match(panel, /if \(ownsRequest && ownsPage\) showScreen\("start"\)/);
 });
 
 test("key setup supports persistent, session-only, replace, and remove flows", async () => {

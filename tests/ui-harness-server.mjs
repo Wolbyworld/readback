@@ -81,11 +81,11 @@ http.createServer(async (request, response) => {
       return;
     }
     const filename = url.pathname === "/" || url.pathname === "/sidepanel.html" ? "sidepanel.html" : url.pathname.slice(1);
-    const allowed = new Set(["sidepanel.html", "sidepanel.css", "sidepanel.js", "extraction-fixture.html"]);
+    const allowed = new Set(["sidepanel.html", "sidepanel.css", "sidepanel.js", "generation-lifecycle.js", "extraction-fixture.html"]);
     if (!allowed.has(filename)) throw new Error("Not found");
     const filePath = filename === "extraction-fixture.html" ? join(root, "tests", filename) : join(extensionRoot, filename);
     let content = await readFile(filePath, "utf8");
-    if (filename === "sidepanel.html") content = content.replace('<script src="sidepanel.js"></script>', '<script src="/chrome-shim.js"></script><script src="/sidepanel.js"></script>');
+    if (filename === "sidepanel.html") content = content.replace('<script type="module" src="sidepanel.js"></script>', '<script src="/chrome-shim.js"></script><script type="module" src="/sidepanel.js"></script>');
     const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript" };
     response.writeHead(200, { "Content-Type": `${types[extname(filename)]}; charset=utf-8`, "Cache-Control": "no-store" });
     response.end(content);

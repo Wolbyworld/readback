@@ -1,3 +1,5 @@
+import { createGenerationKeepAlive } from "./generation-lifecycle.js";
+
 const DEFAULT_SETTINGS = { questionCount: 5, optionCount: 4, level: "apply" };
 const LETTERS = ["A", "B", "C", "D", "E"];
 const TAB_STATE_PREFIX = "readbackTab:";
@@ -27,13 +29,17 @@ const state = {
   lastRequestId: null,
   switchRevision: 0,
   generationRequestId: null,
-  keepAliveTimer: null,
   keyStatus: { configured: false, mode: null },
   keyReturnScreen: "start",
   resumeAfterKeySave: false
 };
 
 const $ = (selector) => document.querySelector(selector);
+const generationKeepAlive = createGenerationKeepAlive({
+  setTimer: (callback, delay) => window.setInterval(callback, delay),
+  clearTimer: (timerId) => window.clearInterval(timerId),
+  ping: () => chrome.runtime.sendMessage({ type: "READBACK_KEEP_ALIVE" }).catch(() => {})
+});
 const screens = {
   key: $("#keyScreen"),
   start: $("#startScreen"),
@@ -378,7 +384,7 @@ async function generateQuiz() {
   }
 
   state.requestedTabId = null;
-  state.abortController?.abort();
+  if (state.abortController) cancelGeneration(false);
   const controller = new AbortController();
   state.abortController = controller;
   const requestId = crypto.randomUUID();
@@ -387,7 +393,7 @@ async function generateQuiz() {
   state.generationRequestId = requestId;
   showScreen("loading");
   cycleLoadingMessage();
-  startGenerationKeepAlive();
+  startGenerationKeepAlive(requestId);
 
   try {
     const page = await sendWorkerMessage({ type: "READBACK_EXTRACT_PAGE", tabId: generationTabId });
@@ -425,13 +431,15 @@ async function generateQuiz() {
     showScreen("quiz");
     await saveCurrentTabState();
   } catch (error) {
+    const ownsRequest = state.generationRequestId === requestId;
+    const ownsPage = state.tabId === generationTabId && state.pageUrl === generationPageUrl;
     if (controller.signal.aborted || error.code === "REQUEST_CANCELLED") {
-      if (state.tabId === generationTabId) showScreen("start");
+      if (ownsRequest && ownsPage) showScreen("start");
       return;
     }
-    if (state.tabId === generationTabId) showError(error);
+    if (ownsRequest && ownsPage) showError(error);
   } finally {
-    stopGenerationKeepAlive();
+    stopGenerationKeepAlive(requestId);
     if (state.abortController === controller) state.abortController = null;
     if (state.generationRequestId === requestId) state.generationRequestId = null;
   }
@@ -442,22 +450,17 @@ function cancelGeneration(showStart = true) {
   state.abortController?.abort();
   state.abortController = null;
   state.generationRequestId = null;
-  stopGenerationKeepAlive();
+  stopGenerationKeepAlive(requestId);
   if (requestId) chrome.runtime.sendMessage({ type: "READBACK_CANCEL_GENERATION", requestId }).catch(() => {});
   if (showStart) showScreen("start");
 }
 
-function startGenerationKeepAlive() {
-  stopGenerationKeepAlive();
-  state.keepAliveTimer = window.setInterval(() => {
-    chrome.runtime.sendMessage({ type: "READBACK_KEEP_ALIVE" }).catch(() => {});
-  }, 15000);
+function startGenerationKeepAlive(requestId) {
+  generationKeepAlive.start(requestId);
 }
 
-function stopGenerationKeepAlive() {
-  if (state.keepAliveTimer == null) return;
-  window.clearInterval(state.keepAliveTimer);
-  state.keepAliveTimer = null;
+function stopGenerationKeepAlive(requestId = null) {
+  generationKeepAlive.stop(requestId);
 }
 
 function buildMediaMap(page) {
