@@ -227,6 +227,44 @@ function renderCurrentState() {
   else if (state.screen === "results" && state.quiz) buildResults();
   else if (!["start", "access", "error"].includes(state.screen)) state.screen = "start";
   showScreen(state.screen);
+  if (state.screen === "start") updateSetupActions();
+}
+
+function returnToSetup() {
+  if (!state.quiz) return;
+  showScreen("start");
+  updateSetupActions();
+  saveCurrentTabState();
+}
+
+function updateSetupActions() {
+  const canResume = Boolean(state.quiz);
+  $("#generateButton span:first-child").textContent = canResume ? "Make a replacement quiz" : "Make my quiz";
+  let resume = $("#resumeButton");
+  if (!canResume) {
+    resume?.remove();
+    return;
+  }
+  if (!resume) {
+    resume = document.createElement("button");
+    resume.className = "secondary-button";
+    resume.id = "resumeButton";
+    resume.type = "button";
+    resume.textContent = state.screen === "results" ? "Review current quiz" : "Resume current quiz";
+    $("#generateButton").before(resume);
+    resume.addEventListener("click", resumeQuiz);
+  }
+  resume.textContent = state.screen === "results" ? "Review current quiz" : "Resume current quiz";
+}
+
+function resumeQuiz() {
+  if (!state.quiz) return;
+  if (state.index >= state.quiz.questions.length - 1 && state.answers.every((answer) => answer != null)) {
+    renderResults();
+    return;
+  }
+  renderQuestion();
+  showScreen("quiz");
 }
 
 async function generateQuiz() {
@@ -319,29 +357,67 @@ function renderQuestion() {
     $("#questionImage").alt = "";
   }
 
+  const selectedAnswer = state.answers[state.index];
   $("#answers").replaceChildren(...question.options.map((option, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.answer = String(index);
-    button.classList.toggle("is-selected", state.answers[state.index] === index);
+    button.classList.toggle("is-selected", selectedAnswer === index);
+    button.classList.toggle("is-correct", selectedAnswer != null && index === question.answer_index);
+    button.classList.toggle("is-wrong", selectedAnswer === index && selectedAnswer !== question.answer_index);
+    button.disabled = selectedAnswer != null;
     const letter = document.createElement("span");
     letter.textContent = LETTERS[index];
     button.append(letter, document.createTextNode(option));
     return button;
   }));
 
-  $("#choiceStatus").textContent = state.answers[state.index] == null ? "Choose one answer." : "Answer saved.";
+  renderAnswerFeedback(question, selectedAnswer);
   $("#backButton").disabled = state.index === 0 || state.animating;
-  $("#nextButton").disabled = state.answers[state.index] == null || state.animating;
+  $("#nextButton").disabled = selectedAnswer == null || state.animating;
   $("#nextButton").textContent = state.index === total - 1 ? "Check answers →" : "Next →";
 }
 
-function chooseAnswer(index) {
-  if (state.animating || state.screen !== "quiz") return;
+function renderAnswerFeedback(question, selectedAnswer) {
+  const feedback = $("#answerFeedback");
+  feedback.replaceChildren();
+  if (selectedAnswer == null) {
+    const status = document.createElement("p");
+    status.className = "choice-status";
+    status.id = "choiceStatus";
+    status.textContent = "Choose one answer.";
+    feedback.append(status);
+    return;
+  }
+
+  const correct = selectedAnswer === question.answer_index;
+  const title = document.createElement("p");
+  title.className = `feedback-title ${correct ? "is-correct" : "is-wrong"}`;
+  title.textContent = correct ? "Correct" : "Not quite";
+  const selectedFeedback = question.option_feedback?.[selectedAnswer];
+  const answer = document.createElement("p");
+  answer.className = "feedback-copy";
+  answer.textContent = correct
+    ? (selectedFeedback || question.explanation)
+    : `Correct answer: ${question.options[question.answer_index]}. ${selectedFeedback || question.explanation}`;
+  const evidence = document.createElement("p");
+  evidence.className = "feedback-evidence";
+  evidence.textContent = question.evidence;
+  if (selectedFeedback && question.explanation && selectedFeedback !== question.explanation) {
+    const explanation = document.createElement("p");
+    explanation.className = "feedback-copy";
+    explanation.textContent = question.explanation;
+    feedback.append(title, answer, explanation, evidence);
+    return;
+  }
+  feedback.append(title, answer, evidence);
+}
+
+function chooseAnswer(index, focusNext = false) {
+  if (state.animating || state.screen !== "quiz" || state.answers[state.index] != null) return;
   state.answers[state.index] = index;
-  [...$("#answers").children].forEach((button, answerIndex) => button.classList.toggle("is-selected", index === answerIndex));
-  $("#choiceStatus").textContent = "Answer saved.";
-  $("#nextButton").disabled = false;
+  renderQuestion();
+  if (focusNext) $("#nextButton").focus();
   saveCurrentTabState();
 }
 
@@ -404,6 +480,7 @@ function buildResults() {
 function renderResults() {
   buildResults();
   showScreen("results");
+  updateSetupActions();
   saveCurrentTabState();
 }
 
@@ -413,6 +490,7 @@ function retryQuiz() {
   $("#questionCard").className = "question-card";
   renderQuestion();
   showScreen("quiz");
+  updateSetupActions();
   saveCurrentTabState();
 }
 
@@ -483,18 +561,19 @@ $("#accessHomeButton").addEventListener("click", () => showScreen("start"));
 $("#cancelButton").addEventListener("click", () => state.abortController?.abort());
 $("#answers").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-answer]");
-  if (button) chooseAnswer(Number(button.dataset.answer));
+  if (button) chooseAnswer(Number(button.dataset.answer), event.detail === 0);
 });
 $("#backButton").addEventListener("click", previousQuestion);
 $("#nextButton").addEventListener("click", nextQuestion);
 $("#retryButton").addEventListener("click", retryQuiz);
-$("#newQuizButton").addEventListener("click", () => resetTab(state.tabId));
+$("#quizSetupButton").addEventListener("click", returnToSetup);
+$("#resultsSetupButton").addEventListener("click", returnToSetup);
 $("#errorRetryButton").addEventListener("click", generateQuiz);
-$("#errorHomeButton").addEventListener("click", () => showScreen("start"));
+$("#errorHomeButton").addEventListener("click", () => state.quiz ? returnToSetup() : showScreen("start"));
 
 document.addEventListener("keydown", (event) => {
   if (state.screen !== "quiz" || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (/^[1-5]$/.test(event.key)) chooseAnswer(Number(event.key) - 1);
+  if (/^[1-5]$/.test(event.key)) chooseAnswer(Number(event.key) - 1, true);
   if (event.key === "ArrowRight") nextQuestion();
   if (event.key === "ArrowLeft") previousQuestion();
 });

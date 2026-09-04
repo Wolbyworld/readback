@@ -51,6 +51,48 @@ test("the start screen exposes the three quiz controls", async () => {
   assert.doesNotMatch(html, /id="settingsDialog"/);
 });
 
+test("the quiz gives immediate locked feedback and keeps setup available", async () => {
+  const [panel, html, css] = await Promise.all([
+    readFile(panelUrl, "utf8"),
+    readFile(panelHtmlUrl, "utf8"),
+    readFile(new URL("../extension/sidepanel.css", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /id="answerFeedback"/);
+  assert.match(html, /id="quizSetupButton"/);
+  assert.match(html, /id="resultsSetupButton"/);
+  assert.match(panel, /function renderAnswerFeedback/);
+  assert.match(panel, /textContent = correct \? "Correct" : "Not quite"/);
+  assert.match(panel, /question\.option_feedback\?\.\[selectedAnswer\]/);
+  assert.match(panel, /button\.disabled = selectedAnswer != null/);
+  assert.match(panel, /state\.answers\[state\.index\] != null\) return/);
+  assert.match(panel, /function returnToSetup/);
+  assert.match(panel, /Make a replacement quiz/);
+  assert.match(css, /font-size: 13px/);
+  assert.match(css, /clamp\(26px, 7\.4vw, 28px\)/);
+  assert.doesNotMatch(css, /\.answers button:hover \{ padding-left/);
+});
+
+test("a replacement keeps the saved quiz until a successful response arrives", async () => {
+  const panel = await readFile(panelUrl, "utf8");
+  const generation = panel.slice(panel.indexOf("async function generateQuiz"), panel.indexOf("function buildMediaMap"));
+
+  assert.match(generation, /showScreen\("loading"\);/);
+  assert.match(generation, /if \(!response\.ok\) throw new Error/);
+  assert.match(generation, /state\.quiz = payload\.quiz;/);
+  assert.ok(generation.indexOf("state.quiz = payload.quiz") > generation.indexOf("if (!response.ok)"));
+  assert.doesNotMatch(generation, /state\.quiz\s*=\s*null/);
+});
+
+test("the stack card can shrink and scroll at short panel sizes", async () => {
+  const css = await readFile(new URL("../extension/sidepanel.css", import.meta.url), "utf8");
+
+  assert.match(css, /\.question-card \{[^}]*min-height: 0;[^}]*overflow-y: auto;/);
+  assert.match(css, /@media \(max-height: 640px\)[\s\S]*?\.question-card \{ inset: 22px 23px 12px 17px;/);
+  assert.match(css, /\.quick-options input:checked \+ span \{[^}]*border: 2px solid var\(--blue\);/);
+  assert.doesNotMatch(css, /input:checked \+ span \{[^}]*background: var\(--blue\)/);
+});
+
 test("direct panel use can request website access with clear UI", async () => {
   const [manifestText, panel, html] = await Promise.all([
     readFile(manifestUrl, "utf8"),

@@ -95,11 +95,14 @@
             </figure>
             <h2 id="questionText"></h2>
             <div class="answers" id="answers"></div>
-            <p class="choice-status" id="choiceStatus">Choose one answer.</p>
+            <div class="answer-feedback" id="answerFeedback" aria-live="polite">
+              <p class="choice-status" id="choiceStatus">Choose one answer.</p>
+            </div>
           </section>
         </div>
 
         <footer class="quiz-actions">
+          <button class="text-button setup-link" id="quizSetupButton" type="button">Back to setup</button>
           <button class="secondary-button" id="backButton" type="button">← Back</button>
           <button class="primary-button" id="nextButton" type="button">Next →</button>
         </footer>
@@ -110,7 +113,7 @@
         <div class="score-lockup"><b id="scoreValue">0/5</b><p id="scoreMessage">First-pass understanding</p></div>
         <div class="result-actions">
           <button class="primary-button" id="retryButton" type="button"><span>Try again</span><span>↻</span></button>
-          <button class="secondary-button" id="newQuizButton" type="button">New quiz</button>
+          <button class="secondary-button" id="resultsSetupButton" type="button">Back to setup</button>
         </div>
         <details class="review" id="reviewDetails">
           <summary>Review answers <span>↓</span></summary>

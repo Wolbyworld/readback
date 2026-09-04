@@ -12,7 +12,7 @@ const quiz = {
   source_summary: "How sleep stages stabilize and connect memories.",
   model: "gpt-5.6-luna",
   questions: [
-    { prompt: "A student wants a new fact to become stable. Which process from the page would help most?", options: ["Hippocampal replay during sleep", "Avoiding REM sleep", "Learning without attention", "One waking rest period"], answer_index: 0, explanation: "Replay helps the cortex build a more stable memory.", evidence: "Repeated activity helps the cortex build more stable memories.", image_ref: "none", image_alt: "" },
+    { prompt: "A student wants a new fact to become stable. Which process from the page would help most?", options: ["Hippocampal replay during sleep", "Avoiding REM sleep", "Learning without attention", "One waking rest period"], answer_index: 0, option_feedback: ["Hippocampal replay gives the cortex repeated activity to stabilize the new memory.", "REM helps connect ideas, so avoiding it would not support learning.", "Attention helps encode a memory before sleep can strengthen it.", "Rest can help, but the page identifies replay during sleep as the main process."], explanation: "Replay helps the cortex build a more stable memory.", evidence: "Repeated activity helps the cortex build more stable memories.", image_ref: "none", image_alt: "" },
     { prompt: "Which stage is most closely linked to connecting ideas?", options: ["REM sleep", "Waking rest", "Slow-wave sleep only", "The first minute of sleep"], answer_index: 0, explanation: "REM sleep helps the brain connect ideas.", evidence: "REM sleep can help the brain connect ideas.", image_ref: "none", image_alt: "" },
     { prompt: "What does the blue section of the sleep-cycle diagram represent?", options: ["Deep sleep", "REM sleep", "Waking attention", "Memory loss"], answer_index: 0, explanation: "The diagram labels the blue section as deep sleep.", evidence: "The blue block is labelled deep sleep.", image_ref: "page_view", image_alt: "Inspect the blue section in the sleep-cycle diagram." },
     { prompt: "Why is attention while awake still important?", options: ["It helps encode the original memory", "It replaces all sleep cycles", "It prevents cortex activity", "It removes emotional memories"], answer_index: 0, explanation: "Sleep can strengthen only information that was first encoded.", evidence: "New experiences are first encoded as fragile patterns.", image_ref: "none", image_alt: "" },
@@ -55,6 +55,14 @@ addEventListener("DOMContentLoaded", () => {
         setTimeout(advance, 360);
       };
       setTimeout(advance, 300);
+    }
+    if (wanted === "feedback") {
+      const answer = () => {
+        const firstAnswer = document.querySelector("#answers button");
+        if (!firstAnswer) return setTimeout(answer, 50);
+        firstAnswer.click();
+      };
+      setTimeout(answer, 300);
     }
   }
 });
