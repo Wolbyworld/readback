@@ -4,7 +4,7 @@ Last updated: September 5, 2026.
 
 ## Local candidate: Air test feedback
 
-The isolated `codex/air-feedback` candidate includes the Find on page work below and these changes:
+The isolated `codex/air-feedback` candidate is version `0.2.1`. It includes the Find on page work below and these changes:
 
 - Question cards use their natural height, with internal scrolling for longer content. A separate grid row keeps Back, Next, and setup visible. Disabled navigation remains readable.
 - Correct and incorrect answers have pale backgrounds, dark text, and explicit answer labels. Both tested text/background pairs exceed 4.5:1 contrast.
@@ -14,7 +14,7 @@ The isolated `codex/air-feedback` candidate includes the Find on page work below
 
 Evidence: all 61 automated tests passed, including Chrome browser fixtures at 240×420, 280×640, 320×520, 380×720, and 420×1100; both browser entry-point syntax checks passed. The narrow UI and results were also inspected in the local preview. No live model calls were made: fresh generation, repeat rejection, errors, cancellation, and source changes used controlled responses.
 
-The initial incomplete render in Vivaldi on the Air was user-reported and was not reproduced on the Mini. Native Vivaldi and Chrome side-panel UAT, including a live **New questions** request on the Sequoia article, remains pending. The candidate has not been transferred to the Air, pushed, or released.
+The initial incomplete render in Vivaldi on the Air was user-reported and was not reproduced on the Mini. Native Vivaldi and Chrome side-panel UAT, including a live **New questions** request on the Sequoia article, remains pending. The user installed the first candidate on the Air while it still carried version `0.2.0`; version `0.2.1` identifies the updated test package. Nothing has been pushed or publicly released.
 
 ## Local candidate: Find on page
 
