@@ -2,11 +2,19 @@
 
 Last updated: September 5, 2026.
 
+## Local candidate: keyboard navigation, 0.2.3
+
+When the panel has focus, A–E or 1–5 selects an available answer, Left/Right moves between questions (Next requires an answer), Escape cancels loading or returns to setup, and ? opens the shortcut list. Tab, Shift+Tab, Enter, Space, and setup radio arrows retain their native behavior. Starting a quiz requires activating its button. Text entry, composition, browser modifiers, held shortcut keys, and the help dialog do not trigger quiz shortcuts. Invalid answer indexes are rejected.
+
+Focus moves to each new question, Next after answering, results after completion, and Cancel while loading. The help dialog starts at its heading so its first shortcuts remain visible in short panels.
+
+Verification: focused Chrome browser tests cover keyboard state, focus, invalid choices, cancellation, and help at 240×420 and 414×800, plus the existing responsive-screen and results checks. Native keys were checked in the local browser preview. No live model calls were needed. Reload version 0.2.3 on the Air for native Vivaldi side-panel confirmation.
+
 ## Local candidate: responsive screens, 0.2.2
 
 A long page title expanded the implicit app grid column to about 696 px in a 414 px panel, clipping the header and setup controls. The app now has an explicit zero-minimum grid column and a shrinkable header. Setup has bounded spacing instead of an automatic top margin, and controls stack at panel widths up to 420 px. Short screens scroll without shrinking their content. A browser regression covers all seven screens, long titles, and live width/height changes.
 
-All 62 automated tests and both entry-point syntax checks passed. The screenshot's long title was also checked in the local preview at 414×1308 and after resizing to 240×420. Native Vivaldi confirmation remains a user test after reloading the updated extension.
+All 62 automated tests and both entry-point syntax checks passed. The screenshot's long title was also checked in the local preview at 414×1308 and after resizing to 240×420. The user confirmed this layout works on the Air before requesting keyboard navigation.
 
 ## Local candidate: Air test feedback
 

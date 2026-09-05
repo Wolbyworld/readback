@@ -75,15 +75,27 @@ function freshTabState(tabId, tab = {}) {
   };
 }
 
+function focusScreen() {
+  if ($("#shortcutsDialog").open) return;
+  const target = state.screen === "loading" ? $("#cancelButton") : screens[state.screen].querySelector("h1, h2");
+  if (!target) return;
+  if (target.matches("h1, h2")) target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+}
+
 function showScreen(name) {
+  const previousScreen = state.screen;
+  const previousFocus = document.activeElement;
   questionTransition += 1;
   state.animating = false;
   $("#questionCard").className = "question-card";
   state.screen = name;
+  if (previousScreen !== name) screens[name].scrollTop = 0;
   Object.entries(screens).forEach(([key, element]) => element.classList.toggle("is-active", key === name));
   const quizTitle = state.quiz?.title;
   $("#headerMeta").textContent = name === "key" ? "OpenAI setup" : (["quiz", "results"].includes(name) && quizTitle ? quizTitle : state.pageTitle);
   $(".tab-marker").classList.toggle("is-saved", Boolean(state.quiz));
+  if (previousScreen !== name || previousFocus === document.body || !previousFocus?.getClientRects().length) focusScreen();
 }
 
 async function loadSettings() {
@@ -532,6 +544,7 @@ function renderQuestion() {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.answer = String(index);
+    button.setAttribute("aria-keyshortcuts", `${LETTERS[index]} ${index + 1}`);
     button.classList.toggle("is-selected", selectedAnswer === index);
     button.classList.toggle("is-correct", selectedAnswer != null && index === question.answer_index);
     button.classList.toggle("is-wrong", selectedAnswer === index && selectedAnswer !== question.answer_index);
@@ -631,6 +644,8 @@ function renderAnswerFeedback(question, selectedAnswer) {
 
 function chooseAnswer(index, focusNext = false) {
   if (state.animating || state.screen !== "quiz" || state.answers[state.index] != null) return;
+  if (!Number.isInteger(index) || index < 0 || index >= state.quiz.questions[state.index].options.length) return;
+  focusNext ||= $("#answers").contains(document.activeElement);
   state.answers[state.index] = index;
   renderQuestion();
   if (focusNext) $("#nextButton").focus();
@@ -655,6 +670,7 @@ function moveQuestion(nextIndex, direction) {
     card.className = `question-card pre-enter-${direction}`;
     state.animating = false;
     renderQuestion();
+    focusScreen();
     // Commit the starting position without waiting for frame callbacks in a web panel.
     void card.offsetHeight;
     card.classList.remove(`pre-enter-${direction}`);
@@ -823,11 +839,44 @@ $("#errorHomeButton").addEventListener("click", () => {
   else showScreen("start");
 });
 
+$("#shortcutsButton").addEventListener("click", () => $("#shortcutsDialog").showModal());
+$("#shortcutsCloseButton").addEventListener("click", () => $("#shortcutsDialog").close());
+$("#shortcutsDialog").addEventListener("close", () => {
+  if (document.activeElement === document.body || !document.activeElement?.getClientRects().length) focusScreen();
+});
+
 document.addEventListener("keydown", (event) => {
-  if (state.screen !== "quiz" || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (/^[1-5]$/.test(event.key)) chooseAnswer(Number(event.key) - 1, true);
-  if (event.key === "ArrowRight") nextQuestion();
-  if (event.key === "ArrowLeft") previousQuestion();
+  if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+  if ($("#shortcutsDialog").open) return; // The native dialog owns Tab and Escape.
+  if (event.target.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']")) return;
+  if (event.key === "?") {
+    event.preventDefault();
+    if (!event.repeat) $("#shortcutsDialog").showModal();
+    return;
+  }
+  if (event.key === "Escape" && !event.shiftKey) {
+    if (state.screen === "loading" || ["quiz", "results"].includes(state.screen)) {
+      event.preventDefault();
+      if (!event.repeat) {
+        if (state.screen === "loading") cancelGeneration();
+        else returnToSetup();
+      }
+    }
+    return;
+  }
+  if (state.screen !== "quiz") return;
+  const key = event.key.toLowerCase();
+  const answer = /^[a-e]$/.test(key) ? key.charCodeAt(0) - 97 : /^[1-5]$/.test(key) ? Number(key) - 1 : -1;
+  if (answer >= 0 && answer < state.quiz.questions[state.index].options.length) {
+    event.preventDefault();
+    if (!event.repeat) chooseAnswer(answer, true);
+  } else if (!event.shiftKey && ["ArrowRight", "ArrowLeft"].includes(event.key)) {
+    event.preventDefault();
+    if (!event.repeat) {
+      if (event.key === "ArrowRight") nextQuestion();
+      else previousQuestion();
+    }
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

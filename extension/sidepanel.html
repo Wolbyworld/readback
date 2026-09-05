@@ -16,6 +16,7 @@
         <span id="headerMeta">Quiz this page</span>
       </div>
       <span class="tab-marker" aria-label="Quiz saved for this tab"><i></i> THIS TAB</span>
+      <button class="icon-button shortcuts-button" id="shortcutsButton" type="button" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" title="Keyboard shortcuts (?)">?</button>
     </header>
 
     <main>
@@ -79,7 +80,7 @@
         <button class="primary-button" id="generateButton" type="button">
           <span>Make my quiz</span><span aria-hidden="true">→</span>
         </button>
-        <p class="privacy-note">Sent only when you click. Text and useful page images go to OpenAI. No history or analytics.</p>
+        <p class="privacy-note">Sent only when you start a quiz. Text and useful page images go to OpenAI. No history or analytics.</p>
       </section>
 
       <section class="screen access-screen" id="accessScreen" aria-live="polite">
@@ -153,6 +154,22 @@
       </section>
     </main>
   </div>
+
+  <dialog class="shortcuts-dialog" id="shortcutsDialog" aria-labelledby="shortcutsTitle">
+    <h2 id="shortcutsTitle" tabindex="-1" autofocus>Keyboard shortcuts</h2>
+    <p>Use these while the Readback panel has focus.</p>
+    <dl>
+      <dt>A–E or 1–5</dt><dd>Choose an available answer.</dd>
+      <dt>← / →</dt><dd>Previous question / next answered question.</dd>
+      <dt>Tab / Shift+Tab</dt><dd>Move between controls.</dd>
+      <dt>Enter / Space</dt><dd>Activate the focused button.</dd>
+      <dt>Arrow keys in setup</dt><dd>Change the focused setting.</dd>
+      <dt>Esc</dt><dd>Close this list, cancel loading, or return to setup. Your quiz stays saved.</dd>
+      <dt>?</dt><dd>Open this list.</dd>
+    </dl>
+    <p>To start a quiz, focus its button and press Enter or Space.</p>
+    <button class="secondary-button" id="shortcutsCloseButton" type="button">Close</button>
+  </dialog>
 
   <script type="module" src="sidepanel.js"></script>
 </body>
