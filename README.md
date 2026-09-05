@@ -2,6 +2,10 @@
 
 Readback turns the page in your active browser tab into a short learning quiz. It uses the approved **Stack** interaction: one question at a time, with each answered card moving up.
 
+![Readback quiz](previews/quiz.png)
+
+Status: local development release `0.2.0`. It is tested as an unpacked extension in Chrome and Vivaldi. It is not published in the Chrome Web Store.
+
 ## What it does
 
 - Makes 3, 5, 7, or 10 multiple-choice questions.
@@ -16,6 +20,20 @@ Readback turns the page in your active browser tab into a short learning quiz. I
 Challenge questions combine at least two source ideas in a new scenario, comparison, or counterfactual. They do not need outside knowledge.
 
 ## Install it
+
+### From a fresh computer
+
+Requirements: Git, Chrome or Vivaldi, and Node.js 20 or newer for tests and model evaluation.
+
+```bash
+git clone git@github.com:Wolbyworld/readback.git
+cd readback
+npm test
+```
+
+The extension has no package install or build step. Load the checked-in `extension` directory directly in the browser.
+
+### Load the extension
 
 In Vivaldi:
 
@@ -63,6 +81,12 @@ If only a deterministic grader changes, regrade a complete saved matrix with `np
 - `npm test`
 - `node --check extension/service-worker.js`
 - `node --check extension/sidepanel.js`
+
+## Continue development
+
+- [Development handoff](docs/HANDOFF.md) explains the architecture, data flow, test strategy, current limits, and release checklist.
+- [Agent instructions](AGENTS.md) give coding agents the exact project rules and commands.
+- `CLAUDE.md` points Claude-based tools to the same project instructions.
 
 ## Verified in automated tests
 
