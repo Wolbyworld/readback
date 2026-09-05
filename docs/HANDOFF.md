@@ -2,6 +2,35 @@
 
 Last updated: September 5, 2026.
 
+## Local candidate: Air test feedback
+
+The isolated `codex/air-feedback` candidate includes the Find on page work below and these changes:
+
+- Question cards use their natural height, with internal scrolling for longer content. A separate grid row keeps Back, Next, and setup visible. Disabled navigation remains readable.
+- Correct and incorrect answers have pale backgrounds, dark text, and explicit answer labels. Both tested text/background pairs exceed 4.5:1 contrast.
+- Question transitions reset scroll and no longer depend on two animation-frame callbacks to reveal the next question. Leaving a quiz cancels stale transitions.
+- Results use the existing Stack visual style. **Repeat this quiz** resets answers without calling OpenAI. **New questions** reads the same source URL and uses the current quiz's settings for a fresh request. Failure or cancellation keeps the completed quiz available.
+- New-question generation rejects repeated question wording, ignoring case and punctuation, within the existing two-attempt limit. This does not detect semantic paraphrases. Model, prompt, schema, and token budgets are unchanged.
+
+Evidence: all 61 automated tests passed, including Chrome browser fixtures at 240×420, 280×640, 320×520, 380×720, and 420×1100; both browser entry-point syntax checks passed. The narrow UI and results were also inspected in the local preview. No live model calls were made: fresh generation, repeat rejection, errors, cancellation, and source changes used controlled responses.
+
+The initial incomplete render in Vivaldi on the Air was user-reported and was not reproduced on the Mini. Native Vivaldi and Chrome side-panel UAT, including a live **New questions** request on the Sequoia article, remains pending. The candidate has not been transferred to the Air, pushed, or released.
+
+## Local candidate: Find on page
+
+Answer feedback now includes **Find on page** for text evidence. It searches the quiz's source tab, highlights matching passages for 45 seconds, and scrolls to the first match. Challenge evidence can highlight two passages. It checks the page URL before searching and again inside the page.
+
+Matching tolerates whitespace, letter case, and typographic quote/dash changes. It does not guess a match for a summary or translation. Visual-only evidence has no text-search button. This change adds no model call, permission, or stored history.
+
+To test the local candidate:
+
+1. Reload the unpacked extension from `extension/` and reopen its side panel.
+2. Resume an existing quiz, or create one from an English article. Answer a question and select **Find on page**.
+3. Confirm that matching source text is highlighted and the quiz answer and progress stay the same.
+4. Try Challenge evidence, wording that is absent from the page, and a second tab with a separate quiz.
+
+Automated browser fixtures cover matching, hidden text, inline markup, missing evidence, changed URLs, and the feedback action. Native side-panel UAT in Chrome and Vivaldi is still required before release. The optional follow-up question is outside this candidate.
+
 ## Current state
 
 Readback `0.2.0` is a working local development release. It has been tested as an unpacked extension in Chrome for Testing 152 and Vivaldi 7.7. It is not submitted to the Chrome Web Store and has no hosted backend.
