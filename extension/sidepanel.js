@@ -1,4 +1,5 @@
 import { createGenerationKeepAlive } from "./generation-lifecycle.js";
+import { evidencePassages } from "./source-evidence.js";
 
 const DEFAULT_SETTINGS = { questionCount: 5, optionCount: 4, level: "apply" };
 const LETTERS = ["A", "B", "C", "D", "E"];
@@ -29,12 +30,14 @@ const state = {
   lastRequestId: null,
   switchRevision: 0,
   generationRequestId: null,
+  pendingNewQuiz: null,
   keyStatus: { configured: false, mode: null },
   keyReturnScreen: "start",
   resumeAfterKeySave: false
 };
 
 const $ = (selector) => document.querySelector(selector);
+let questionTransition = 0;
 const generationKeepAlive = createGenerationKeepAlive({
   setTimer: (callback, delay) => window.setInterval(callback, delay),
   clearTimer: (timerId) => window.clearInterval(timerId),
@@ -67,16 +70,32 @@ function freshTabState(tabId, tab = {}) {
     answers: [],
     animating: false,
     abortController: null,
-    requestedTabId: null
+    requestedTabId: null,
+    pendingNewQuiz: null
   };
 }
 
+function focusScreen() {
+  if ($("#shortcutsDialog").open) return;
+  const target = state.screen === "loading" ? $("#cancelButton") : screens[state.screen].querySelector("h1, h2");
+  if (!target) return;
+  if (target.matches("h1, h2")) target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+}
+
 function showScreen(name) {
+  const previousScreen = state.screen;
+  const previousFocus = document.activeElement;
+  questionTransition += 1;
+  state.animating = false;
+  $("#questionCard").className = "question-card";
   state.screen = name;
+  if (previousScreen !== name) screens[name].scrollTop = 0;
   Object.entries(screens).forEach(([key, element]) => element.classList.toggle("is-active", key === name));
   const quizTitle = state.quiz?.title;
   $("#headerMeta").textContent = name === "key" ? "OpenAI setup" : (["quiz", "results"].includes(name) && quizTitle ? quizTitle : state.pageTitle);
   $(".tab-marker").classList.toggle("is-saved", Boolean(state.quiz));
+  if (previousScreen !== name || previousFocus === document.body || !previousFocus?.getClientRects().length) focusScreen();
 }
 
 async function loadSettings() {
@@ -337,6 +356,7 @@ function renderCurrentState() {
 
 function returnToSetup() {
   if (!state.quiz) return;
+  state.pendingNewQuiz = null;
   showScreen("start");
   updateSetupActions();
   saveCurrentTabState();
@@ -372,12 +392,24 @@ function resumeQuiz() {
   showScreen("quiz");
 }
 
+function generateNewQuiz() {
+  if (!state.quiz || state.abortController) return;
+  state.pendingNewQuiz = {
+    tabId: state.tabId,
+    pageUrl: state.pageUrl,
+    settings: { ...(state.quizSettings || state.settings) },
+    previousQuestions: state.quiz.questions.map((question) => question.prompt)
+  };
+  return generateQuiz();
+}
+
 async function generateQuiz() {
   if (!state.keyStatus.configured) {
     openKeySetup({ resumeGeneration: true });
     return;
   }
-  const generationTabId = state.requestedTabId ?? state.tabId;
+  const replacement = state.pendingNewQuiz;
+  const generationTabId = replacement?.tabId ?? state.requestedTabId ?? state.tabId;
   if (!Number.isInteger(generationTabId)) {
     showError(new Error("No active page was found."));
     return;
@@ -388,7 +420,7 @@ async function generateQuiz() {
   const controller = new AbortController();
   state.abortController = controller;
   const requestId = crypto.randomUUID();
-  const generationSettings = { ...state.settings };
+  const generationSettings = { ...(replacement?.settings || state.settings) };
   let generationPageUrl = state.pageUrl;
   state.generationRequestId = requestId;
   showScreen("loading");
@@ -398,6 +430,9 @@ async function generateQuiz() {
   try {
     const page = await sendWorkerMessage({ type: "READBACK_EXTRACT_PAGE", tabId: generationTabId });
     if (controller.signal.aborted) return;
+    if (replacement && page?.url !== replacement.pageUrl) {
+      throw new Error("The source page has changed. Return to the original page to make new questions.");
+    }
     if ((page?.text || "").length < 250) {
       throw new Error("This page does not have enough readable text for a useful quiz.");
     }
@@ -410,7 +445,8 @@ async function generateQuiz() {
       type: "READBACK_GENERATE_QUIZ",
       requestId,
       page,
-      settings: generationSettings
+      settings: generationSettings,
+      ...(replacement ? { previousQuestions: replacement.previousQuestions } : {})
     });
     if (controller.signal.aborted) return;
     if (!generated?.quiz || !Array.isArray(generated.quiz.questions)) throw new Error("Readback received an invalid quiz.");
@@ -426,7 +462,10 @@ async function generateQuiz() {
     state.index = 0;
     state.answers = Array(state.quiz.questions.length).fill(null);
     state.animating = false;
+    state.pendingNewQuiz = null;
     state.screen = "quiz";
+    $("#questionCard").className = "question-card";
+    $("#questionCard").scrollTop = 0;
     renderQuestion();
     showScreen("quiz");
     await saveCurrentTabState();
@@ -452,7 +491,12 @@ function cancelGeneration(showStart = true) {
   state.generationRequestId = null;
   stopGenerationKeepAlive(requestId);
   if (requestId) chrome.runtime.sendMessage({ type: "READBACK_CANCEL_GENERATION", requestId }).catch(() => {});
-  if (showStart) showScreen("start");
+  if (showStart) {
+    if (state.pendingNewQuiz && state.quiz) {
+      state.pendingNewQuiz = null;
+      resumeQuiz();
+    } else showScreen("start");
+  }
 }
 
 function startGenerationKeepAlive(requestId) {
@@ -500,13 +544,26 @@ function renderQuestion() {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.answer = String(index);
+    button.setAttribute("aria-keyshortcuts", `${LETTERS[index]} ${index + 1}`);
     button.classList.toggle("is-selected", selectedAnswer === index);
     button.classList.toggle("is-correct", selectedAnswer != null && index === question.answer_index);
     button.classList.toggle("is-wrong", selectedAnswer === index && selectedAnswer !== question.answer_index);
     button.disabled = selectedAnswer != null;
     const letter = document.createElement("span");
+    letter.className = "answer-letter";
     letter.textContent = LETTERS[index];
-    button.append(letter, document.createTextNode(option));
+    const copy = document.createElement("span");
+    copy.className = "answer-copy";
+    copy.append(document.createTextNode(option));
+    if (selectedAnswer != null && (index === question.answer_index || index === selectedAnswer)) {
+      const label = document.createElement("span");
+      label.className = "answer-state";
+      label.textContent = index === question.answer_index
+        ? (index === selectedAnswer ? "✓ Your answer · Correct" : "✓ Correct answer")
+        : "✕ Your answer · Incorrect";
+      copy.append(label);
+    }
+    button.append(letter, copy);
     return button;
   }));
 
@@ -547,13 +604,48 @@ function renderAnswerFeedback(question, selectedAnswer) {
     explanation.className = "feedback-copy";
     explanation.textContent = question.explanation;
     feedback.append(title, answer, explanation, evidence);
-    return;
+  } else {
+    feedback.append(title, answer, evidence);
   }
-  feedback.append(title, answer, evidence);
+  if (!evidencePassages(question.evidence).length) return;
+  const find = document.createElement("button");
+  find.type = "button";
+  find.className = "text-button evidence-link";
+  find.textContent = "Find on page";
+  const status = document.createElement("p");
+  status.className = "evidence-status";
+  status.setAttribute("role", "status");
+  const tabId = state.tabId;
+  const pageUrl = state.pageUrl;
+  find.addEventListener("click", async () => {
+    find.disabled = true;
+    status.textContent = "Finding source text…";
+    try {
+      const result = await sendWorkerMessage({ type: "READBACK_FIND_EVIDENCE", tabId, pageUrl, evidence: question.evidence });
+      if (result.status === "found") {
+        status.textContent = result.total > result.found
+          ? "One passage highlighted. The other wording was not found."
+          : result.found > 1 ? "Both passages highlighted on the page." : "Source text highlighted on the page.";
+      } else {
+        status.textContent = result.status === "page_changed"
+          ? "The page has changed. Make a new quiz to find its source text."
+          : result.status === "not_found" || result.status === "no_text"
+            ? "This wording was not found on the page. The evidence may be a summary or translation."
+            : "Readback could not search this page. Open the source tab and try again.";
+      }
+    } catch {
+      status.textContent = "Readback could not search this page. Try again.";
+    } finally {
+      find.disabled = false;
+    }
+  });
+  feedback.append(find, status);
 }
 
 function chooseAnswer(index, focusNext = false) {
   if (state.animating || state.screen !== "quiz" || state.answers[state.index] != null) return;
+  if (!Number.isInteger(index) || index < 0 || index >= state.quiz.questions[state.index].options.length) return;
+  focusNext ||= $("#answers").contains(document.activeElement);
   state.answers[state.index] = index;
   renderQuestion();
   if (focusNext) $("#nextButton").focus();
@@ -564,17 +656,25 @@ function moveQuestion(nextIndex, direction) {
   if (state.animating || nextIndex < 0 || nextIndex >= state.quiz.questions.length) return;
   state.animating = true;
   const card = $("#questionCard");
+  const quiz = state.quiz;
+  const tabId = state.tabId;
+  const transition = ++questionTransition;
+  const switchRevision = state.switchRevision;
+  const ownsQuiz = () => questionTransition === transition && state.switchRevision === switchRevision
+    && state.quiz === quiz && state.tabId === tabId && state.screen === "quiz";
   card.classList.add(`is-leaving-${direction}`);
   window.setTimeout(() => {
+    if (!ownsQuiz()) return;
     state.index = nextIndex;
+    card.scrollTop = 0;
     card.className = `question-card pre-enter-${direction}`;
+    state.animating = false;
     renderQuestion();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      card.classList.remove(`pre-enter-${direction}`);
-      state.animating = false;
-      renderQuestion();
-      saveCurrentTabState();
-    }));
+    focusScreen();
+    // Commit the starting position without waiting for frame callbacks in a web panel.
+    void card.offsetHeight;
+    card.classList.remove(`pre-enter-${direction}`);
+    saveCurrentTabState();
   }, 130);
 }
 
@@ -591,6 +691,7 @@ function previousQuestion() {
 function buildResults() {
   const correct = state.answers.filter((answer, index) => answer === state.quiz.questions[index].answer_index).length;
   const total = state.quiz.questions.length;
+  $("#resultTitle").textContent = state.quiz.title || "Your results";
   $("#scoreValue").textContent = `${correct}/${total}`;
   $("#scoreMessage").textContent = scoreMessage(correct / total);
   $("#resultModel").textContent = (state.quiz.model || "LUNA").replace("gpt-5.6-", "").toUpperCase();
@@ -626,9 +727,12 @@ function renderResults() {
 }
 
 function retryQuiz() {
+  state.pendingNewQuiz = null;
+  state.animating = false;
   state.index = 0;
   state.answers = Array(state.quiz.questions.length).fill(null);
   $("#questionCard").className = "question-card";
+  $("#questionCard").scrollTop = 0;
   renderQuestion();
   showScreen("quiz");
   updateSetupActions();
@@ -650,6 +754,7 @@ function showError(error) {
   const message = error?.message || "Unknown error.";
   $("#errorTitle").textContent = error?.code === "RATE_LIMITED" ? "OpenAI needs a short pause." : "This quiz needs another try.";
   $("#errorMessage").textContent = message;
+  $("#errorHomeButton").textContent = state.quiz ? "Back to current quiz" : "Back to start";
   showScreen("error");
 }
 
@@ -724,16 +829,54 @@ $("#answers").addEventListener("click", (event) => {
 $("#backButton").addEventListener("click", previousQuestion);
 $("#nextButton").addEventListener("click", nextQuestion);
 $("#retryButton").addEventListener("click", retryQuiz);
+$("#newQuizButton").addEventListener("click", generateNewQuiz);
 $("#quizSetupButton").addEventListener("click", returnToSetup);
 $("#resultsSetupButton").addEventListener("click", returnToSetup);
 $("#errorRetryButton").addEventListener("click", generateQuiz);
-$("#errorHomeButton").addEventListener("click", () => state.quiz ? returnToSetup() : showScreen("start"));
+$("#errorHomeButton").addEventListener("click", () => {
+  state.pendingNewQuiz = null;
+  if (state.quiz) resumeQuiz();
+  else showScreen("start");
+});
+
+$("#shortcutsButton").addEventListener("click", () => $("#shortcutsDialog").showModal());
+$("#shortcutsCloseButton").addEventListener("click", () => $("#shortcutsDialog").close());
+$("#shortcutsDialog").addEventListener("close", () => {
+  if (document.activeElement === document.body || !document.activeElement?.getClientRects().length) focusScreen();
+});
 
 document.addEventListener("keydown", (event) => {
-  if (state.screen !== "quiz" || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (/^[1-5]$/.test(event.key)) chooseAnswer(Number(event.key) - 1, true);
-  if (event.key === "ArrowRight") nextQuestion();
-  if (event.key === "ArrowLeft") previousQuestion();
+  if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+  if ($("#shortcutsDialog").open) return; // The native dialog owns Tab and Escape.
+  if (event.target.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']")) return;
+  if (event.key === "?") {
+    event.preventDefault();
+    if (!event.repeat) $("#shortcutsDialog").showModal();
+    return;
+  }
+  if (event.key === "Escape" && !event.shiftKey) {
+    if (state.screen === "loading" || ["quiz", "results"].includes(state.screen)) {
+      event.preventDefault();
+      if (!event.repeat) {
+        if (state.screen === "loading") cancelGeneration();
+        else returnToSetup();
+      }
+    }
+    return;
+  }
+  if (state.screen !== "quiz") return;
+  const key = event.key.toLowerCase();
+  const answer = /^[a-e]$/.test(key) ? key.charCodeAt(0) - 97 : /^[1-5]$/.test(key) ? Number(key) - 1 : -1;
+  if (answer >= 0 && answer < state.quiz.questions[state.index].options.length) {
+    event.preventDefault();
+    if (!event.repeat) chooseAnswer(answer, true);
+  } else if (!event.shiftKey && ["ArrowRight", "ArrowLeft"].includes(event.key)) {
+    event.preventDefault();
+    if (!event.repeat) {
+      if (event.key === "ArrowRight") nextQuestion();
+      else previousQuestion();
+    }
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

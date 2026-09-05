@@ -200,6 +200,8 @@ export async function createQuizWithOpenAI(input, apiKey, options = {}) {
   const timeoutMs = options.timeoutMs ?? (input.settings.level === "challenge" ? OPENAI_CHALLENGE_TIMEOUT_MS : OPENAI_TIMEOUT_MS);
   const { request, mediaRefs } = buildOpenAIRequest(input, options.model || DEFAULT_MODEL);
   const invalidQuiz = () => new ReadbackApiError("QUIZ_INVALID", "OpenAI returned a quiz Readback could not use. Please try again.", 502);
+  const questionIdentity = (prompt) => prompt.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const previousQuestions = new Set((options.previousQuestions || []).map(questionIdentity));
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController();
@@ -243,10 +245,13 @@ export async function createQuizWithOpenAI(input, apiKey, options = {}) {
       }
     }
     const shapeError = quiz && validateQuizShape(quiz, input.settings.questionCount, input.settings.optionCount, mediaRefs, input.settings.level);
+    const repeatsQuestion = quiz && !shapeError && quiz.questions.some((question) => previousQuestions.has(questionIdentity(question.prompt)));
     if (shapeError) invalidReason = shapeError;
-    if (!quiz || shapeError) {
+    if (repeatsQuestion) invalidReason = "A question from the previous quiz was repeated.";
+    if (!quiz || shapeError || repeatsQuestion) {
       options.onInvalid?.({ attempt: attempt + 1, reason: invalidReason });
       if (attempt === 0) continue;
+      if (repeatsQuestion) throw new ReadbackApiError("QUIZ_REPEATED", "OpenAI repeated a previous question. Your current quiz is still saved. Try new questions again.", 502);
       throw invalidQuiz();
     }
     balanceQuizAnswerPositions(quiz, options.random);

@@ -1,5 +1,6 @@
 import { apiKeyStatus, configureStorageAccess, KeyStorageError, readApiKey, removeApiKey, saveApiKey } from "./key-storage.js";
 import { createQuizWithOpenAI, ReadbackApiError, validateGenerationInput } from "./openai-request.js";
+import { findSourceEvidence } from "./source-evidence.js";
 
 const SCREENSHOT_QUALITY = 68;
 const MAX_TEXT_LENGTH = 28000;
@@ -47,6 +48,15 @@ function routeMessage(message, sender) {
   if (sender?.id && sender.id !== chrome.runtime.id) return null;
 
   switch (message.type) {
+    case "READBACK_FIND_EVIDENCE":
+      assertOnlyKeys(message, ["type", "tabId", "pageUrl", "evidence"]);
+      if (!Number.isInteger(message.tabId) || message.tabId < 1
+        || typeof message.pageUrl !== "string" || message.pageUrl.length > 2048
+        || !/^https?:\/\//.test(message.pageUrl)
+        || typeof message.evidence !== "string" || message.evidence.length > 2000) {
+        throw new ReadbackApiError("INVALID_REQUEST", "The source request was not valid.", 400);
+      }
+      return findSourceEvidence(chrome, message);
     case "READBACK_EXTRACT_PAGE":
       assertOnlyKeys(message, ["type", "tabId"]);
       if (!Number.isInteger(message.tabId) || message.tabId < 1) throw new ReadbackApiError("INVALID_REQUEST", "The page request was not valid.", 400);
@@ -64,8 +74,13 @@ function routeMessage(message, sender) {
       assertOnlyKeys(message, ["type"]);
       return storageReady.then(() => removeApiKey(chrome.storage));
     case "READBACK_GENERATE_QUIZ":
-      assertOnlyKeys(message, ["type", "requestId", "page", "settings"]);
+      assertOnlyKeys(message, ["type", "requestId", "page", "settings", "previousQuestions"]);
       assertRequestId(message.requestId);
+      if (message.previousQuestions != null && (!Array.isArray(message.previousQuestions)
+        || message.previousQuestions.length > 10
+        || message.previousQuestions.some((prompt) => typeof prompt !== "string" || prompt.length > 260))) {
+        throw new ReadbackApiError("INVALID_REQUEST", "The previous quiz was not valid.", 400);
+      }
       return generateQuiz(message);
     case "READBACK_CANCEL_GENERATION":
       assertOnlyKeys(message, ["type", "requestId"]);
@@ -99,7 +114,7 @@ async function generateQuiz(message) {
   const controller = new AbortController();
   generationControllers.set(message.requestId, controller);
   try {
-    const quiz = await createQuizWithOpenAI(input, stored.key, { signal: controller.signal });
+    const quiz = await createQuizWithOpenAI(input, stored.key, { signal: controller.signal, previousQuestions: message.previousQuestions });
     return { quiz };
   } finally {
     if (generationControllers.get(message.requestId) === controller) generationControllers.delete(message.requestId);

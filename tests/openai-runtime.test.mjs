@@ -149,3 +149,33 @@ test("a summary must end as a complete sentence", async () => {
   );
   assert.deepEqual(invalidReasons, ["The quiz has no usable summary.", "The quiz has no usable summary."]);
 });
+
+test("new questions reject repeated prompts within the existing two-attempt limit", async () => {
+  const input = validInput();
+  const makeQuiz = prefix => ({ title: "A complete quiz", source_summary: "The source supports these linked ideas.", questions: Array.from({ length: 3 }, (_, index) => ({
+    prompt: `Scenario: ${prefix} source ideas for case ${index + 1}.`,
+    options: ["Complete correct answer", "First wrong answer", "Second wrong answer", "Third wrong answer"],
+    answer_index: 0,
+    explanation: "Correct: The two source ideas support this conclusion.",
+    option_feedback: ["Fits: Both source ideas support this conclusion.", "Fails: This misses one idea. Correct: Combine both source ideas.", "Fails: This reverses the ideas. Correct: Combine both source ideas.", "Fails: This adds a claim. Correct: Combine both source ideas."],
+    evidence: "Evidence A: The first idea applies; Evidence B: The second idea supports this conclusion",
+    image_ref: "none", image_alt: ""
+  })) });
+  const repeated = makeQuiz('Combine');
+  const fresh = makeQuiz('Compare');
+  const previousQuestions = repeated.questions.map(q => q.prompt.toUpperCase().replace('.', '!'));
+  let calls = 0;
+  const reasons = [];
+  const result = await createQuizWithOpenAI(input, PLACEHOLDER_KEY, { previousQuestions,
+    fetchImpl: async () => new Response(JSON.stringify({ output_text: JSON.stringify(++calls === 1 ? repeated : fresh) })),
+    onInvalid: failure => reasons.push(failure.reason)
+  });
+  assert.equal(calls, 2);
+  assert.match(result.questions[0].prompt, /Compare/);
+  assert.deepEqual(reasons, ["A question from the previous quiz was repeated."]);
+  calls = 0;
+  await assert.rejects(createQuizWithOpenAI(input, PLACEHOLDER_KEY, { previousQuestions,
+    fetchImpl: async () => { calls++; return new Response(JSON.stringify({ output_text: JSON.stringify(repeated) })); }
+  }), error => error.code === 'QUIZ_REPEATED');
+  assert.equal(calls, 2);
+});

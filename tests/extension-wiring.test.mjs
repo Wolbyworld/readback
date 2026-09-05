@@ -77,7 +77,7 @@ test("the quiz gives immediate locked feedback and keeps setup available", async
   assert.match(panel, /function returnToSetup/);
   assert.match(panel, /Make a replacement quiz/);
   assert.match(css, /\.answers button \{[^}]*font-size: 14px/);
-  assert.match(css, /clamp\(26px, 7\.4vw, 28px\)/);
+  assert.match(css, /clamp\(22px, 6\.5vw, 28px\)/);
   assert.doesNotMatch(css, /\.answers button:hover \{ padding-left/);
 });
 
@@ -109,11 +109,11 @@ test("the stack card can shrink and scroll at short panel sizes", async () => {
   const css = await readFile(new URL("../extension/sidepanel.css", import.meta.url), "utf8");
 
   assert.match(css, /\.question-card \{[^}]*min-height: 0;[^}]*overflow-y: auto;/);
-  assert.match(css, /@media \(max-height: 640px\)[\s\S]*?\.question-card \{ inset: 22px 23px 12px 17px;/);
+  assert.match(css, /\.quiz-screen\.is-active \{ display: grid; grid-template-rows: auto minmax\(0, 1fr\) auto;/);
   assert.match(css, /\.quick-options input:checked \+ span \{[^}]*border: 2px solid var\(--blue\);/);
   assert.doesNotMatch(css, /input:checked \+ span \{[^}]*background: var\(--blue\)/);
   assert.match(css, /html, body \{ min-width: 0;/);
-  assert.match(css, /@media \(max-width: 280px\)[\s\S]*?\.quiz-actions \{[^}]*grid-template-columns: 1fr 1fr;/);
+  assert.match(css, /\.quiz-actions \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/);
   assert.match(css, /@media \(max-width: 280px\)[\s\S]*?\.depth-field \.quick-options \{[^}]*repeat\(2,/);
 });
 

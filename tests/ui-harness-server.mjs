@@ -21,6 +21,7 @@ const quiz = {
 };
 
 const shim = `
+const demoTitle = new URLSearchParams(location.search).get("title") || "Why sleep makes memories stick";
 const demoScreenshot = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420"><rect width="800" height="420" fill="white"/><text x="40" y="60" font-family="Georgia" font-size="34">Sleep cycle</text><rect x="70" y="160" width="170" height="120" fill="#f7db23"/><rect x="300" y="100" width="170" height="180" fill="#ed3b2f"/><rect x="530" y="200" width="170" height="80" fill="#1647ff"/><text x="110" y="320" font-family="monospace" font-size="20">awake</text><text x="350" y="320" font-family="monospace" font-size="20">REM</text><text x="545" y="320" font-family="monospace" font-size="20">deep sleep</text></svg>');
 globalThis.chrome = {
   storage: {
@@ -29,26 +30,38 @@ globalThis.chrome = {
     onChanged: { addListener: () => {} }
   },
   tabs: {
-    query: async () => [{ id: 101, title: "Why sleep makes memories stick", url: "https://example.com/sleep" }],
-    get: async () => ({ id: 101, title: "Why sleep makes memories stick", url: "https://example.com/sleep" })
+    query: async () => [{ id: 101, title: demoTitle, url: "https://example.com/sleep" }],
+    get: async () => ({ id: 101, title: demoTitle, url: "https://example.com/sleep" })
   },
   permissions: { request: async () => true },
   runtime: {
     sendMessage: async (message) => {
       if (message.type === "READBACK_KEY_STATUS") return { ok: true, payload: { configured: true, mode: "persistent" } };
+      if (message.type === "READBACK_FIND_EVIDENCE") return { ok: true, payload: { status: "not_found", found: 0 } };
       if (message.type === "READBACK_GENERATE_QUIZ") {
         await new Promise((resolve) => setTimeout(resolve, 180));
-        return { ok: true, payload: { quiz: ${JSON.stringify(quiz)} } };
+        const quiz = ${JSON.stringify(quiz)};
+        if (message.previousQuestions) {
+          const prompts = [
+            "Which sleep process helps a recently learned fact become stable?",
+            "How can REM sleep help someone connect two ideas?",
+            "Which sleep stage is shown by the blue part of the diagram?",
+            "What must happen while awake before sleep can strengthen a memory?",
+            "How do the different stages contribute to a complete sleep cycle?"
+          ];
+          quiz.questions.forEach((question, index) => { question.prompt = prompts[index]; });
+        }
+        return { ok: true, payload: { quiz } };
       }
       if (message.type === "READBACK_CANCEL_GENERATION") return { ok: true, payload: { cancelled: true } };
-      return { ok: true, payload: { title: "Why sleep makes memories stick", url: "https://example.com/sleep", text: "Sleep helps the brain stabilize memories. During deep sleep, the hippocampus replays recent patterns and repeated activity helps the cortex build stable memories. REM sleep helps connect ideas and process emotional memories. Attention while awake helps encode the original memory. ".repeat(3), images: [], diagrams: [], screenshot: demoScreenshot } };
+      return { ok: true, payload: { title: demoTitle, url: "https://example.com/sleep", text: "Sleep helps the brain stabilize memories. During deep sleep, the hippocampus replays recent patterns and repeated activity helps the cortex build stable memories. REM sleep helps connect ideas and process emotional memories. Attention while awake helps encode the original memory. ".repeat(3), images: [], diagrams: [], screenshot: demoScreenshot } };
     }
   }
 };
 addEventListener("DOMContentLoaded", () => {
   const wanted = new URLSearchParams(location.search).get("state") || "start";
   if (wanted === "loading") document.querySelector("#generateButton").click();
-  if (wanted === "quiz" || wanted === "results") {
+  if (wanted === "quiz" || wanted === "results" || wanted === "feedback") {
     document.querySelector("#generateButton").click();
     if (wanted === "results") {
       const advance = () => {
@@ -64,7 +77,7 @@ addEventListener("DOMContentLoaded", () => {
       const answer = () => {
         const firstAnswer = document.querySelector("#answers button");
         if (!firstAnswer) return setTimeout(answer, 50);
-        firstAnswer.click();
+        document.querySelectorAll("#answers button")[1].click();
       };
       setTimeout(answer, 300);
     }
@@ -81,7 +94,7 @@ http.createServer(async (request, response) => {
       return;
     }
     const filename = url.pathname === "/" || url.pathname === "/sidepanel.html" ? "sidepanel.html" : url.pathname.slice(1);
-    const allowed = new Set(["sidepanel.html", "sidepanel.css", "sidepanel.js", "generation-lifecycle.js", "extraction-fixture.html"]);
+    const allowed = new Set(["sidepanel.html", "sidepanel.css", "sidepanel.js", "generation-lifecycle.js", "source-evidence.js", "extraction-fixture.html"]);
     if (!allowed.has(filename)) throw new Error("Not found");
     const filePath = filename === "extraction-fixture.html" ? join(root, "tests", filename) : join(extensionRoot, filename);
     let content = await readFile(filePath, "utf8");

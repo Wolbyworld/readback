@@ -2,6 +2,59 @@
 
 Last updated: September 5, 2026.
 
+## Repository release: 0.2.3
+
+This release includes Find on page, responsive layouts, clearer feedback and results, repeat/new-question actions, and keyboard navigation. The unpacked extension is installed on the Air. The user confirmed the responsive layout works and accepted the keyboard update.
+
+All 63 automated tests and both browser entry-point syntax checks passed on September 5, 2026. Keyboard interaction was checked in the local browser preview. The native Chrome/Vivaldi baseline below was verified on 0.2.0; a full native matrix was not repeated for 0.2.3. No new live model evaluation was needed because the model, prompt, and schema are unchanged.
+
+The README uses four screenshots of fixed demo content from the current UI. Run `node tests/ui-harness-server.mjs`, then `node tests/capture-previews.mjs` in another terminal to refresh them. Screenshot capture needs Node.js 22 or newer and Chrome/Chromium. Browser profiles are temporary, and no API key or live request is used.
+
+The notes below preserve the implementation and verification history. This is an unpacked repository release; there is no Chrome Web Store publication.
+
+## Keyboard navigation, 0.2.3
+
+When the panel has focus, A–E or 1–5 selects an available answer, Left/Right moves between questions (Next requires an answer), Escape cancels loading or returns to setup, and ? opens the shortcut list. Tab, Shift+Tab, Enter, Space, and setup radio arrows retain their native behavior. Starting a quiz requires activating its button. Text entry, composition, browser modifiers, held shortcut keys, and the help dialog do not trigger quiz shortcuts. Invalid answer indexes are rejected.
+
+Focus moves to each new question, Next after answering, results after completion, and Cancel while loading. The help dialog starts at its heading so its first shortcuts remain visible in short panels.
+
+Verification: focused Chrome browser tests cover keyboard state, focus, invalid choices, cancellation, and help at 240×420 and 414×800, plus the existing responsive-screen and results checks. Native keys were checked in the local browser preview. No live model calls were needed. Reload version 0.2.3 on the Air for native Vivaldi side-panel confirmation.
+
+## Local candidate: responsive screens, 0.2.2
+
+A long page title expanded the implicit app grid column to about 696 px in a 414 px panel, clipping the header and setup controls. The app now has an explicit zero-minimum grid column and a shrinkable header. Setup has bounded spacing instead of an automatic top margin, and controls stack at panel widths up to 420 px. Short screens scroll without shrinking their content. A browser regression covers all seven screens, long titles, and live width/height changes.
+
+All 62 automated tests and both entry-point syntax checks passed. The screenshot's long title was also checked in the local preview at 414×1308 and after resizing to 240×420. The user confirmed this layout works on the Air before requesting keyboard navigation.
+
+## Local candidate: Air test feedback
+
+The isolated `codex/air-feedback` candidate is version `0.2.1`. It includes the Find on page work below and these changes:
+
+- Question cards use their natural height, with internal scrolling for longer content. A separate grid row keeps Back, Next, and setup visible. Disabled navigation remains readable.
+- Correct and incorrect answers have pale backgrounds, dark text, and explicit answer labels. Both tested text/background pairs exceed 4.5:1 contrast.
+- Question transitions reset scroll and no longer depend on two animation-frame callbacks to reveal the next question. Leaving a quiz cancels stale transitions.
+- Results use the existing Stack visual style. **Repeat this quiz** resets answers without calling OpenAI. **New questions** reads the same source URL and uses the current quiz's settings for a fresh request. Failure or cancellation keeps the completed quiz available.
+- New-question generation rejects repeated question wording, ignoring case and punctuation, within the existing two-attempt limit. This does not detect semantic paraphrases. Model, prompt, schema, and token budgets are unchanged.
+
+Evidence: all 61 automated tests passed, including Chrome browser fixtures at 240×420, 280×640, 320×520, 380×720, and 420×1100; both browser entry-point syntax checks passed. The narrow UI and results were also inspected in the local preview. No live model calls were made: fresh generation, repeat rejection, errors, cancellation, and source changes used controlled responses.
+
+The initial incomplete render in Vivaldi on the Air was user-reported and was not reproduced on the Mini. Native Vivaldi and Chrome side-panel UAT, including a live **New questions** request on the Sequoia article, remains pending. The user installed the first candidate on the Air while it still carried version `0.2.0`; version `0.2.1` identifies the updated test package. At that point, nothing had been pushed or publicly released.
+
+## Local candidate: Find on page
+
+Answer feedback now includes **Find on page** for text evidence. It searches the quiz's source tab, highlights matching passages for 45 seconds, and scrolls to the first match. Challenge evidence can highlight two passages. It checks the page URL before searching and again inside the page.
+
+Matching tolerates whitespace, letter case, and typographic quote/dash changes. It does not guess a match for a summary or translation. Visual-only evidence has no text-search button. This change adds no model call, permission, or stored history.
+
+To test the local candidate:
+
+1. Reload the unpacked extension from `extension/` and reopen its side panel.
+2. Resume an existing quiz, or create one from an English article. Answer a question and select **Find on page**.
+3. Confirm that matching source text is highlighted and the quiz answer and progress stay the same.
+4. Try Challenge evidence, wording that is absent from the page, and a second tab with a separate quiz.
+
+Automated browser fixtures cover matching, hidden text, inline markup, missing evidence, changed URLs, and the feedback action. Native side-panel UAT in Chrome and Vivaldi is still required before release. The optional follow-up question is outside this candidate.
+
 ## Current state
 
 Readback `0.2.0` is a working local development release. It has been tested as an unpacked extension in Chrome for Testing 152 and Vivaldi 7.7. It is not submitted to the Chrome Web Store and has no hosted backend.
