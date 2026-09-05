@@ -2,7 +2,17 @@
 
 Last updated: September 5, 2026.
 
-## Local candidate: keyboard navigation, 0.2.3
+## Repository release: 0.2.3
+
+This release includes Find on page, responsive layouts, clearer feedback and results, repeat/new-question actions, and keyboard navigation. The unpacked extension is installed on the Air. The user confirmed the responsive layout works and accepted the keyboard update.
+
+All 63 automated tests and both browser entry-point syntax checks passed on September 5, 2026. Keyboard interaction was checked in the local browser preview. The native Chrome/Vivaldi baseline below was verified on 0.2.0; a full native matrix was not repeated for 0.2.3. No new live model evaluation was needed because the model, prompt, and schema are unchanged.
+
+The README uses four screenshots of fixed demo content from the current UI. Run `node tests/ui-harness-server.mjs`, then `node tests/capture-previews.mjs` in another terminal to refresh them. Screenshot capture needs Node.js 22 or newer and Chrome/Chromium. Browser profiles are temporary, and no API key or live request is used.
+
+The notes below preserve the implementation and verification history. This is an unpacked repository release; there is no Chrome Web Store publication.
+
+## Keyboard navigation, 0.2.3
 
 When the panel has focus, A–E or 1–5 selects an available answer, Left/Right moves between questions (Next requires an answer), Escape cancels loading or returns to setup, and ? opens the shortcut list. Tab, Shift+Tab, Enter, Space, and setup radio arrows retain their native behavior. Starting a quiz requires activating its button. Text entry, composition, browser modifiers, held shortcut keys, and the help dialog do not trigger quiz shortcuts. Invalid answer indexes are rejected.
 
@@ -28,7 +38,7 @@ The isolated `codex/air-feedback` candidate is version `0.2.1`. It includes the 
 
 Evidence: all 61 automated tests passed, including Chrome browser fixtures at 240×420, 280×640, 320×520, 380×720, and 420×1100; both browser entry-point syntax checks passed. The narrow UI and results were also inspected in the local preview. No live model calls were made: fresh generation, repeat rejection, errors, cancellation, and source changes used controlled responses.
 
-The initial incomplete render in Vivaldi on the Air was user-reported and was not reproduced on the Mini. Native Vivaldi and Chrome side-panel UAT, including a live **New questions** request on the Sequoia article, remains pending. The user installed the first candidate on the Air while it still carried version `0.2.0`; version `0.2.1` identifies the updated test package. Nothing has been pushed or publicly released.
+The initial incomplete render in Vivaldi on the Air was user-reported and was not reproduced on the Mini. Native Vivaldi and Chrome side-panel UAT, including a live **New questions** request on the Sequoia article, remains pending. The user installed the first candidate on the Air while it still carried version `0.2.0`; version `0.2.1` identifies the updated test package. At that point, nothing had been pushed or publicly released.
 
 ## Local candidate: Find on page
 
