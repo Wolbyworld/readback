@@ -2,6 +2,12 @@
 
 Last updated: September 5, 2026.
 
+## Local candidate: responsive screens, 0.2.2
+
+A long page title expanded the implicit app grid column to about 696 px in a 414 px panel, clipping the header and setup controls. The app now has an explicit zero-minimum grid column and a shrinkable header. Setup has bounded spacing instead of an automatic top margin, and controls stack at panel widths up to 420 px. Short screens scroll without shrinking their content. A browser regression covers all seven screens, long titles, and live width/height changes.
+
+All 62 automated tests and both entry-point syntax checks passed. The screenshot's long title was also checked in the local preview at 414×1308 and after resizing to 240×420. Native Vivaldi confirmation remains a user test after reloading the updated extension.
+
 ## Local candidate: Air test feedback
 
 The isolated `codex/air-feedback` candidate is version `0.2.1`. It includes the Find on page work below and these changes:

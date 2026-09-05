@@ -4,7 +4,7 @@ Readback turns the page in your active browser tab into a short learning quiz. I
 
 ![Readback quiz](previews/quiz.png)
 
-Status: local test candidate `0.2.1`. Native browser verification for this candidate is pending. The previous `0.2.0` release was tested unpacked in Chrome and Vivaldi. It is not published in the Chrome Web Store.
+Status: local test candidate `0.2.2`. Native browser verification for this candidate is pending. The previous `0.2.0` release was tested unpacked in Chrome and Vivaldi. It is not published in the Chrome Web Store.
 
 ## What it does
 

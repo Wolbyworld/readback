@@ -21,6 +21,7 @@ const quiz = {
 };
 
 const shim = `
+const demoTitle = new URLSearchParams(location.search).get("title") || "Why sleep makes memories stick";
 const demoScreenshot = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420"><rect width="800" height="420" fill="white"/><text x="40" y="60" font-family="Georgia" font-size="34">Sleep cycle</text><rect x="70" y="160" width="170" height="120" fill="#f7db23"/><rect x="300" y="100" width="170" height="180" fill="#ed3b2f"/><rect x="530" y="200" width="170" height="80" fill="#1647ff"/><text x="110" y="320" font-family="monospace" font-size="20">awake</text><text x="350" y="320" font-family="monospace" font-size="20">REM</text><text x="545" y="320" font-family="monospace" font-size="20">deep sleep</text></svg>');
 globalThis.chrome = {
   storage: {
@@ -29,8 +30,8 @@ globalThis.chrome = {
     onChanged: { addListener: () => {} }
   },
   tabs: {
-    query: async () => [{ id: 101, title: "Why sleep makes memories stick", url: "https://example.com/sleep" }],
-    get: async () => ({ id: 101, title: "Why sleep makes memories stick", url: "https://example.com/sleep" })
+    query: async () => [{ id: 101, title: demoTitle, url: "https://example.com/sleep" }],
+    get: async () => ({ id: 101, title: demoTitle, url: "https://example.com/sleep" })
   },
   permissions: { request: async () => true },
   runtime: {
@@ -53,7 +54,7 @@ globalThis.chrome = {
         return { ok: true, payload: { quiz } };
       }
       if (message.type === "READBACK_CANCEL_GENERATION") return { ok: true, payload: { cancelled: true } };
-      return { ok: true, payload: { title: "Why sleep makes memories stick", url: "https://example.com/sleep", text: "Sleep helps the brain stabilize memories. During deep sleep, the hippocampus replays recent patterns and repeated activity helps the cortex build stable memories. REM sleep helps connect ideas and process emotional memories. Attention while awake helps encode the original memory. ".repeat(3), images: [], diagrams: [], screenshot: demoScreenshot } };
+      return { ok: true, payload: { title: demoTitle, url: "https://example.com/sleep", text: "Sleep helps the brain stabilize memories. During deep sleep, the hippocampus replays recent patterns and repeated activity helps the cortex build stable memories. REM sleep helps connect ideas and process emotional memories. Attention while awake helps encode the original memory. ".repeat(3), images: [], diagrams: [], screenshot: demoScreenshot } };
     }
   }
 };
